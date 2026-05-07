@@ -1,11 +1,20 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import language, intent, sentiment, analyze
+from app.routers import language, intent, sentiment, analyze, comments
+from app.database import init_db
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    print("Database initialized ✅")
+    yield
 
 app = FastAPI(
     title="Social Commerce Comment Interpreter",
     description="Rule-based multilingual comment analysis for social media sellers",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -20,6 +29,7 @@ app.include_router(language.router)
 app.include_router(intent.router)
 app.include_router(sentiment.router)
 app.include_router(analyze.router)
+app.include_router(comments.router)
 
 @app.get("/")
 def root():

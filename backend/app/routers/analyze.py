@@ -5,6 +5,7 @@ from app.rules.intent_classifier import classify_intent
 from app.rules.sentiment_analyzer import analyze_sentiment
 from app.rules.emoji_analyzer import has_only_emojis
 from app.rules.ai_fallback import ai_fallback
+from app.database import save_comment
 
 router = APIRouter(prefix="/analyze", tags=["Analyze"])
 
@@ -34,7 +35,9 @@ async def process_comment(text: str) -> dict:
 # Single comment
 @router.post("/single")
 async def analyze_single(comment: CommentInput):
-    return await process_comment(comment.text)
+    result = await process_comment(comment.text)
+    save_comment(result, comment.product_category if hasattr(comment, 'product_category') else 'general')
+    return result
 
 # Batch comments
 @router.post("/batch")
