@@ -1,0 +1,137 @@
+.seller-view {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.category-tab {
+  padding: 8px 20px;
+  border-radius: 20px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #475569;
+}
+
+.category-tab:hover {
+  border-color: #1877f2;
+  color: #1877f2;
+}
+
+.category-tab.active {
+  background: #1877f2;
+  border-color: #1877f2;
+  color: white;
+}
+
+.refresh-btn {
+  margin-left: auto;
+  background: none;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.refresh-btn:hover {
+  border-color: #1877f2;
+  color: #1877f2;
+}
+
+.seller-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+.seller-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.add-comment-box {
+  display: flex;
+  gap: 10px;
+  background: white;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+}
+
+.add-comment-box input {
+  flex: 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border 0.2s;
+}
+
+.add-comment-box input:focus {
+  border-color: #1877f2;
+}
+
+.add-btn {
+  background: #1877f2;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.add-btn:hover {
+  background: #1558b0;
+}
+
+.add-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.error-banner {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+
+.seller-sidebar {
+  position: sticky;
+  top: 80px;
+}
+
+@media (max-width: 900px) {
+  .seller-layout {
+    grid-template-columns: 1fr;
+  }
+  .seller-sidebar {
+    position: static;
+  }
+}
