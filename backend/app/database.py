@@ -126,3 +126,50 @@ def get_summary():
         'language_counts': language_counts,
         'status_counts': status_counts
     }
+
+
+def get_comments_by_category(category: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM comments 
+        WHERE product_category = ?
+        ORDER BY
+            CASE status 
+                WHEN 'new' THEN 1 
+                WHEN 'pending' THEN 2 
+                WHEN 'done' THEN 3 
+            END,
+            created_at DESC
+    ''', (category,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_summary_by_category(category: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT intent, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY intent', (category,))
+    intent_counts = {row['intent']: row['count'] for row in cursor.fetchall()}
+
+    cursor.execute('SELECT sentiment, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY sentiment', (category,))
+    sentiment_counts = {row['sentiment']: row['count'] for row in cursor.fetchall()}
+
+    cursor.execute('SELECT language, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY language', (category,))
+    language_counts = {row['language']: row['count'] for row in cursor.fetchall()}
+
+    cursor.execute('SELECT status, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY status', (category,))
+    status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
+
+    cursor.execute('SELECT COUNT(*) as total FROM comments WHERE product_category = ?', (category,))
+    total = cursor.fetchone()['total']
+
+    conn.close()
+    return {
+        'total': total,
+        'intent_counts': intent_counts,
+        'sentiment_counts': sentiment_counts,
+        'language_counts': language_counts,
+        'status_counts': status_counts
+    }

@@ -1,7 +1,7 @@
 .comment-item {
   display: flex;
   gap: 10px;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-bottom: 1px solid #f1f5f9;
   transition: background 0.15s;
 }
@@ -11,8 +11,8 @@
 }
 
 .comment-avatar {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: #e2e8f0;
   display: flex;
@@ -27,16 +27,15 @@
   min-width: 0;
 }
 
-.comment-header {
+.comment-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   margin-bottom: 4px;
-  flex-wrap: wrap;
 }
 
 .comment-username {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.88rem;
   color: #1a202c;
 }
@@ -44,39 +43,17 @@
 .comment-time {
   font-size: 0.75rem;
   color: #94a3b8;
-  margin-left: auto;
-}
-
-.language-badge {
-  font-size: 0.7rem;
-  background: #e2e8f0;
-  color: #475569;
-  padding: 1px 6px;
-  border-radius: 20px;
-  font-weight: 600;
-}
-
-.ai-badge {
-  font-size: 0.7rem;
-  background: #ede9fe;
-  color: #7c3aed;
-  padding: 1px 6px;
-  border-radius: 20px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 3px;
 }
 
 .comment-text {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   color: #374151;
-  margin-bottom: 8px;
   line-height: 1.5;
+  margin-bottom: 10px;
   word-break: break-word;
 }
 
-.comment-footer {
+.comment-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -84,17 +61,21 @@
   gap: 8px;
 }
 
-.comment-tags {
+.comment-labels {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
-.tag {
+.intent-label {
   font-size: 0.75rem;
   padding: 3px 10px;
   border-radius: 20px;
   font-weight: 600;
+}
+
+.sentiment-label {
+  font-size: 1rem;
 }
 
 .comment-actions {
@@ -108,36 +89,36 @@
   gap: 4px;
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 4px 10px;
+  padding: 5px 11px;
   border-radius: 6px;
   border: none;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.action-btn.pending {
-  background: #fef9c3;
-  color: #92400e;
-}
-
-.action-btn.pending:hover {
-  background: #fde68a;
-}
-
-.action-btn.done {
+.action-btn.replied {
   background: #dcfce7;
   color: #15803d;
 }
 
-.action-btn.done:hover {
+.action-btn.replied:hover {
   background: #bbf7d0;
 }
 
-.action-btn.reset {
+.action-btn.skip {
+  background: #fef9c3;
+  color: #92400e;
+}
+
+.action-btn.skip:hover {
+  background: #fde68a;
+}
+
+.action-btn.reopen {
   background: #f1f5f9;
   color: #475569;
 }
 
-.action-btn.reset:hover {
+.action-btn.reopen:hover {
   background: #e2e8f0;
 }

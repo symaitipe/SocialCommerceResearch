@@ -1,4 +1,4 @@
-import { Bot, User, CheckCircle, Clock, RotateCcw } from "lucide-react";
+import { User, CheckCircle, SkipForward, RotateCcw } from "lucide-react";
 import "./CommentItem.css";
 
 const INTENT_COLORS = {
@@ -18,99 +18,78 @@ const INTENT_COLORS = {
   general: { bg: "#f1f5f9", color: "#64748b", label: "General" },
 };
 
-const SENTIMENT_COLORS = {
-  positive: { bg: "#dcfce7", color: "#15803d", emoji: "😊" },
-  negative: { bg: "#fee2e2", color: "#dc2626", emoji: "😞" },
-  neutral: { bg: "#f1f5f9", color: "#64748b", emoji: "😐" },
+const SENTIMENT_EMOJI = {
+  positive: "😊",
+  negative: "😞",
+  neutral: "😐",
 };
 
-const LANGUAGE_LABELS = {
-  english: "EN",
-  sinhala: "SI",
-  singlish: "SG",
-  mixed: "MX",
+const timeAgo = (timestamp) => {
+  const diff = Date.now() - new Date(timestamp).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hrs = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${days}d ago`;
 };
 
-const CommentItem = ({ result, index, activeTab, onStatusChange }) => {
+const CommentItem = ({ result, activeTab, onStatusChange }) => {
   const intent = INTENT_COLORS[result.intent] || INTENT_COLORS.general;
-  const sentiment =
-    SENTIMENT_COLORS[result.sentiment] || SENTIMENT_COLORS.neutral;
-  const language = LANGUAGE_LABELS[result.language] || "EN";
-
-  const timeAgo = (timestamp) => {
-    const diff = Date.now() - new Date(timestamp).getTime();
-    const mins = Math.floor(diff / 60000);
-    const hrs = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${days}d ago`;
-  };
+  const sentiment = SENTIMENT_EMOJI[result.sentiment] || "😐";
 
   return (
     <div className="comment-item">
       <div className="comment-avatar">
-        <User size={18} />
+        <User size={16} />
       </div>
       <div className="comment-body">
-        <div className="comment-header">
+        <div className="comment-top">
           <span className="comment-username">Customer {result.id}</span>
-          <span className="language-badge">{language}</span>
-          {result.ai_assisted === 1 && (
-            <span className="ai-badge">
-              <Bot size={11} /> AI
-            </span>
-          )}
           <span className="comment-time">{timeAgo(result.created_at)}</span>
         </div>
 
         <p className="comment-text">{result.text}</p>
 
-        <div className="comment-footer">
-          <div className="comment-tags">
+        <div className="comment-bottom">
+          <div className="comment-labels">
             <span
-              className="tag"
+              className="intent-label"
               style={{ background: intent.bg, color: intent.color }}
             >
               {intent.label}
             </span>
-            <span
-              className="tag"
-              style={{ background: sentiment.bg, color: sentiment.color }}
-            >
-              {sentiment.emoji} {result.sentiment}
-            </span>
+            <span className="sentiment-label">{sentiment}</span>
           </div>
 
-          {/* Status Action Buttons */}
           <div className="comment-actions">
             {activeTab === "new" && (
               <>
                 <button
-                  className="action-btn pending"
-                  onClick={() => onStatusChange(result.id, "pending")}
-                >
-                  <Clock size={13} /> Mark Pending
-                </button>
-                <button
-                  className="action-btn done"
+                  className="action-btn replied"
                   onClick={() => onStatusChange(result.id, "done")}
                 >
-                  <CheckCircle size={13} /> Done
+                  <CheckCircle size={13} /> Replied
+                </button>
+                <button
+                  className="action-btn skip"
+                  onClick={() => onStatusChange(result.id, "pending")}
+                >
+                  <SkipForward size={13} /> Skip
                 </button>
               </>
             )}
             {activeTab === "pending" && (
               <>
                 <button
-                  className="action-btn done"
+                  className="action-btn replied"
                   onClick={() => onStatusChange(result.id, "done")}
                 >
-                  <CheckCircle size={13} /> Mark Done
+                  <CheckCircle size={13} /> Replied
                 </button>
                 <button
-                  className="action-btn reset"
+                  className="action-btn reopen"
                   onClick={() => onStatusChange(result.id, "new")}
                 >
                   <RotateCcw size={13} /> Move to New
@@ -119,7 +98,7 @@ const CommentItem = ({ result, index, activeTab, onStatusChange }) => {
             )}
             {activeTab === "done" && (
               <button
-                className="action-btn reset"
+                className="action-btn reopen"
                 onClick={() => onStatusChange(result.id, "pending")}
               >
                 <RotateCcw size={13} /> Reopen
