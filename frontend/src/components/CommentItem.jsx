@@ -1,114 +1,135 @@
-import { useState } from "react";
-import CommentItem from "./CommentItem";
-import "./CommentSection.css";
+import { Bot, User, CheckCircle, Clock, RotateCcw } from "lucide-react";
+import "./CommentItem.css";
 
-const INTENT_GROUPS = [
-  {
-    key: "purchase_intent",
+const INTENT_COLORS = {
+  price_inquiry: { bg: "#dbeafe", color: "#1d4ed8", label: "Price Inquiry" },
+  delivery_inquiry: { bg: "#fef9c3", color: "#92400e", label: "Delivery" },
+  purchase_intent: {
+    bg: "#dcfce7",
+    color: "#15803d",
     label: "Purchase Intent",
-    emoji: "🛒",
-    priority: 1,
   },
-  { key: "price_inquiry", label: "Price Inquiries", emoji: "💰", priority: 2 },
-  {
-    key: "delivery_inquiry",
-    label: "Delivery Questions",
-    emoji: "🚚",
-    priority: 3,
+  product_inquiry: {
+    bg: "#ede9fe",
+    color: "#7c3aed",
+    label: "Product Inquiry",
   },
-  {
-    key: "product_inquiry",
-    label: "Product Inquiries",
-    emoji: "📦",
-    priority: 4,
-  },
-  { key: "feedback", label: "Feedback", emoji: "⭐", priority: 5 },
-  { key: "general", label: "General", emoji: "💬", priority: 6 },
-];
+  feedback: { bg: "#fce7f3", color: "#be185d", label: "Feedback" },
+  general: { bg: "#f1f5f9", color: "#64748b", label: "General" },
+};
 
-const TABS = ["new", "pending", "done"];
+const SENTIMENT_COLORS = {
+  positive: { bg: "#dcfce7", color: "#15803d", emoji: "😊" },
+  negative: { bg: "#fee2e2", color: "#dc2626", emoji: "😞" },
+  neutral: { bg: "#f1f5f9", color: "#64748b", emoji: "😐" },
+};
 
-const CommentSection = ({ comments, onStatusChange, loading }) => {
-  const [activeTab, setActiveTab] = useState("new");
-  const [collapsedGroups, setCollapsedGroups] = useState({});
+const LANGUAGE_LABELS = {
+  english: "EN",
+  sinhala: "SI",
+  singlish: "SG",
+  mixed: "MX",
+};
 
-  const toggleGroup = (key) => {
-    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+const CommentItem = ({ result, index, activeTab, onStatusChange }) => {
+  const intent = INTENT_COLORS[result.intent] || INTENT_COLORS.general;
+  const sentiment =
+    SENTIMENT_COLORS[result.sentiment] || SENTIMENT_COLORS.neutral;
+  const language = LANGUAGE_LABELS[result.language] || "EN";
+
+  const timeAgo = (timestamp) => {
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const mins = Math.floor(diff / 60000);
+    const hrs = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${days}d ago`;
   };
 
-  const filteredByTab = comments.filter((c) => c.status === activeTab);
-
-  const getCountByStatus = (status) =>
-    comments.filter((c) => c.status === status).length;
-
   return (
-    <div className="comment-section">
-      {/* Status Tabs */}
-      <div className="status-tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            className={`status-tab ${activeTab === tab ? "active" : ""} tab-${tab}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === "new" && "🔴"}
-            {tab === "pending" && "🟡"}
-            {tab === "done" && "✅"}{" "}
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            <span className="tab-count">{getCountByStatus(tab)}</span>
-          </button>
-        ))}
+    <div className="comment-item">
+      <div className="comment-avatar">
+        <User size={18} />
       </div>
+      <div className="comment-body">
+        <div className="comment-header">
+          <span className="comment-username">Customer {result.id}</span>
+          <span className="language-badge">{language}</span>
+          {result.ai_assisted === 1 && (
+            <span className="ai-badge">
+              <Bot size={11} /> AI
+            </span>
+          )}
+          <span className="comment-time">{timeAgo(result.created_at)}</span>
+        </div>
 
-      {loading && <div className="loading-bar">Analyzing...</div>}
+        <p className="comment-text">{result.text}</p>
 
-      {/* Grouped by Intent */}
-      {INTENT_GROUPS.map((group) => {
-        const groupComments = filteredByTab.filter(
-          (c) => c.intent === group.key,
-        );
-        if (groupComments.length === 0) return null;
-
-        const isCollapsed = collapsedGroups[group.key];
-
-        return (
-          <div key={group.key} className="intent-group">
-            <div
-              className="intent-group-header"
-              onClick={() => toggleGroup(group.key)}
+        <div className="comment-footer">
+          <div className="comment-tags">
+            <span
+              className="tag"
+              style={{ background: intent.bg, color: intent.color }}
             >
-              <span className="intent-emoji">{group.emoji}</span>
-              <span className="intent-label">{group.label}</span>
-              <span className="intent-count">{groupComments.length}</span>
-              <span className="collapse-icon">{isCollapsed ? "▼" : "▲"}</span>
-            </div>
+              {intent.label}
+            </span>
+            <span
+              className="tag"
+              style={{ background: sentiment.bg, color: sentiment.color }}
+            >
+              {sentiment.emoji} {result.sentiment}
+            </span>
+          </div>
 
-            {!isCollapsed && (
-              <div className="intent-group-body">
-                {groupComments.map((comment, index) => (
-                  <CommentItem
-                    key={comment.id}
-                    result={comment}
-                    index={index}
-                    activeTab={activeTab}
-                    onStatusChange={onStatusChange}
-                  />
-                ))}
-              </div>
+          {/* Status Action Buttons */}
+          <div className="comment-actions">
+            {activeTab === "new" && (
+              <>
+                <button
+                  className="action-btn pending"
+                  onClick={() => onStatusChange(result.id, "pending")}
+                >
+                  <Clock size={13} /> Mark Pending
+                </button>
+                <button
+                  className="action-btn done"
+                  onClick={() => onStatusChange(result.id, "done")}
+                >
+                  <CheckCircle size={13} /> Done
+                </button>
+              </>
+            )}
+            {activeTab === "pending" && (
+              <>
+                <button
+                  className="action-btn done"
+                  onClick={() => onStatusChange(result.id, "done")}
+                >
+                  <CheckCircle size={13} /> Mark Done
+                </button>
+                <button
+                  className="action-btn reset"
+                  onClick={() => onStatusChange(result.id, "new")}
+                >
+                  <RotateCcw size={13} /> Move to New
+                </button>
+              </>
+            )}
+            {activeTab === "done" && (
+              <button
+                className="action-btn reset"
+                onClick={() => onStatusChange(result.id, "pending")}
+              >
+                <RotateCcw size={13} /> Reopen
+              </button>
             )}
           </div>
-        );
-      })}
-
-      {filteredByTab.length === 0 && !loading && (
-        <div className="empty-state">
-          {activeTab === "new" && "🎉 No new comments — all caught up!"}
-          {activeTab === "pending" && "📭 No pending comments."}
-          {activeTab === "done" && "📋 No completed comments yet."}
         </div>
-      )}
+      </div>
     </div>
   );
 };
 
-export default CommentSection;
+export default CommentItem;
