@@ -1,18 +1,13 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Navbar from "./components/Navbar";
-import Home from "./pages/Home";
-import Notifications from "./pages/Notifications";
-import PostView from "./pages/PostView";
-import "./App.css";
+import FBHome from "./pages/FBHome";
+import PostDetail from "./pages/PostDetail";
 
 function App() {
   return (
     <Router>
-      <Navbar />
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/post/:category" element={<PostView />} />
+        <Route path="/" element={<FBHome />} />
+        <Route path="/post/:category" element={<PostDetail />} />
       </Routes>
     </Router>
   );

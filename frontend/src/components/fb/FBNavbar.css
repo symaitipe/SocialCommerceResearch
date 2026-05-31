@@ -1,0 +1,145 @@
+.fb-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 1000;
+}
+
+.fb-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fb-logo {
+  width: 40px;
+  height: 40px;
+  background: #1877f2;
+  border-radius: 50%;
+  color: white;
+  font-size: 1.6rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: Georgia, serif;
+}
+
+.fb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f2f5;
+  border-radius: 20px;
+  padding: 8px 12px;
+  color: #65676b;
+}
+
+.fb-search input {
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 0.88rem;
+  color: #1c1e21;
+  width: 180px;
+}
+
+.fb-nav-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.fb-nav-icon {
+  width: 100px;
+  height: 48px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  color: #65676b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  border-bottom: 3px solid transparent;
+}
+
+.fb-nav-icon:hover {
+  background: #f0f2f5;
+}
+
+.fb-nav-icon.active {
+  color: #1877f2;
+  border-bottom-color: #1877f2;
+}
+
+.fb-nav-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fb-nav-action {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e4e6eb;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1c1e21;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.fb-nav-action:hover {
+  background: #d8dadf;
+}
+
+.notif-btn {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: #e41e3f;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fb-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #1877f2;
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}

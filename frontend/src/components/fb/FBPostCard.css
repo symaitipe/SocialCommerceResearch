@@ -1,0 +1,242 @@
+.fb-post-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.fb-post-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.fb-post-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #dbeafe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.fb-post-meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.fb-post-author {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #1c1e21;
+}
+
+.fb-post-time {
+  font-size: 0.78rem;
+  color: #65676b;
+}
+
+.fb-post-more {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #65676b;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 0.15s;
+}
+
+.fb-post-more:hover {
+  background: #f0f2f5;
+}
+
+.fb-post-content {
+  padding: 0 16px 12px;
+}
+
+.fb-post-text {
+  font-size: 0.95rem;
+  color: #1c1e21;
+  line-height: 1.5;
+}
+
+.fb-post-image {
+  background: #f0f2f5;
+  border-top: 1px solid #e4e6eb;
+  border-bottom: 1px solid #e4e6eb;
+}
+
+.fb-product-display {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.fb-product-emoji {
+  font-size: 4rem;
+  width: 100px;
+  height: 100px;
+  background: white;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+
+.fb-product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb-product-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1c1e21;
+}
+
+.fb-product-price {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1877f2;
+}
+
+.fb-product-cta {
+  font-size: 0.85rem;
+  color: #65676b;
+}
+
+.fb-post-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  font-size: 0.88rem;
+  color: #65676b;
+}
+
+.fb-post-stats-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fb-comments-count {
+  cursor: pointer;
+}
+
+.fb-comments-count:hover {
+  text-decoration: underline;
+}
+
+.fb-seller-view-btn {
+  background: #dbeafe;
+  color: #1877f2;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.fb-seller-view-btn:hover {
+  background: #bfdbfe;
+}
+
+.fb-post-divider {
+  height: 1px;
+  background: #e4e6eb;
+  margin: 0 16px;
+}
+
+.fb-post-actions {
+  display: flex;
+  padding: 4px 8px;
+}
+
+.fb-action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #65676b;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.fb-action-btn:hover {
+  background: #f0f2f5;
+}
+
+.fb-action-btn.liked {
+  color: #1877f2;
+}
+
+.fb-comments-section {
+  padding: 8px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-comment-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fb-comment-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1877f2;
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fb-comment-input input {
+  flex: 1;
+  background: #f0f2f5;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.fb-view-all-btn {
+  background: none;
+  border: none;
+  color: #65676b;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.fb-view-all-btn:hover {
+  text-decoration: underline;
+}
