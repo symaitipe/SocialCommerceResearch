@@ -1,13 +1,13 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import FBHome from "./pages/FBHome";
-import PostDetail from "./pages/PostDetail";
+import Home from "./pages/Home";
+import PostView from "./pages/PostView";
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<FBHome />} />
-        <Route path="/post/:category" element={<PostDetail />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/post/:postId" element={<PostView />} />
       </Routes>
     </Router>
   );

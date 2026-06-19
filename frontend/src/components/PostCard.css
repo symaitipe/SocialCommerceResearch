@@ -1,0 +1,76 @@
+.post-card {
+  background: white;
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+  margin-bottom: 10px;
+}
+
+.post-card:hover {
+  border-color: #1877f2;
+}
+
+.post-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.post-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-card-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #1c1e21;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-badge {
+  background: #dc2626;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+
+.post-card-url {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #65676b;
+  margin-top: 2px;
+}
+
+.dot {
+  color: #cbd5e1;
+}
+
+.post-card-arrow {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
