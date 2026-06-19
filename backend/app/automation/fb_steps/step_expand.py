@@ -1,48 +1,44 @@
+import random
 import asyncio
-from app.automation.fb_locators import FBLocators
 
-async def expand_all_comments(page, max_clicks: int = 30) -> int:
+async def expand_all_comments(page, max_scroll_attempts: int = 50):
     """
-    Step 4: Repeatedly click 'View more comments' to load all comments.
-    Returns total number of expansion clicks performed.
+    Scrolls the comments section repeatedly until no new comments load.
+    Uses human-like randomized timing to reduce bot-detection risk.
+    Customer top-level comments only — does not expand seller reply threads.
     """
-    print("📜 Expanding all comments...")
-    clicks = 0
+    print("📜 Loading all comments via scroll...")
 
-    while clicks < max_clicks:
-        expanded = False
+    previous_count = 0
+    stable_rounds = 0
+    attempts = 0
 
-        # Try 'View more comments'
-        try:
-            btn = FBLocators.view_more_comments_button(page)
-            is_visible = await btn.is_visible()
-            if is_visible:
-                await btn.click()
-                await asyncio.sleep(2)
-                clicks += 1
-                expanded = True
-                print(f"   Loaded more comments ({clicks})")
-                continue
-        except Exception:
-            pass
+    while attempts < max_scroll_attempts and stable_rounds < 3:
+        # Scroll by a randomized distance — not always straight to the bottom
+        scroll_amount = random.randint(600, 1400)
+        await page.evaluate(f'window.scrollBy(0, {scroll_amount})')
 
-        # Try 'View previous comments'
-        try:
-            btn = FBLocators.view_previous_comments_button(page)
-            is_visible = await btn.is_visible()
-            if is_visible:
-                await btn.click()
-                await asyncio.sleep(2)
-                clicks += 1
-                expanded = True
-                print(f"   Loaded previous comments ({clicks})")
-                continue
-        except Exception:
-            pass
+        # Randomized human-like wait between scrolls
+        wait_time = random.uniform(1.2, 2.8)
+        await asyncio.sleep(wait_time)
 
-        # No more buttons found
-        if not expanded:
-            break
+        # Occasionally pause longer, like a human reading comments
+        if attempts > 0 and attempts % 5 == 0:
+            reading_pause = random.uniform(2.5, 5.0)
+            await asyncio.sleep(reading_pause)
 
-    print(f"✅ Expansion complete — {clicks} loads performed")
-    return clicks
+        # Count current top-level comments
+        current_elements = await page.query_selector_all('[aria-label*="Comment by"]')
+        current_count = len(current_elements)
+
+        if current_count == previous_count:
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+            print(f"   Loaded {current_count} comments so far...")
+
+        previous_count = current_count
+        attempts += 1
+
+    print(f"✅ Comment loading stable at {previous_count} comments ({attempts} scroll attempts)")
+    return previous_count

@@ -75,18 +75,24 @@ async def _login(context):
     page = await context.new_page()
 
     print("🌐 Opening Facebook login...")
-    await page.goto('https://www.facebook.com/login')
-    await asyncio.sleep(2)
-
-    await FBLocators.login_email(page).fill(FB_EMAIL)
-    await FBLocators.login_password(page).fill(FB_PASSWORD)
-    await FBLocators.login_button(page).click()
+    await page.goto('https://www.facebook.com/login', timeout=60000)
     await asyncio.sleep(3)
+
+    try:
+        await FBLocators.login_email(page).fill(FB_EMAIL, timeout=30000)
+        await FBLocators.login_password(page).fill(FB_PASSWORD, timeout=30000)
+        await FBLocators.login_button(page).click(timeout=30000)
+    except Exception as e:
+        print(f"⚠️  Auto-fill failed ({str(e)}) — please log in manually in the browser.")
+
+    await asyncio.sleep(2)
 
     print("\n" + "="*50)
     print("⚠️  ACTION REQUIRED:")
+    print("   Log in manually if not already done.")
     print("   If CAPTCHA or 2FA appeared — complete it now")
-    print("   Once fully logged in, press Enter to continue...")
+    print("   Once fully logged in, come back here and")
+    print("   press Enter to continue...")
     print("="*50)
     await asyncio.get_event_loop().run_in_executor(None, input)
 

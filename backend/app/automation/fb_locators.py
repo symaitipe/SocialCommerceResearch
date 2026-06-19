@@ -62,11 +62,11 @@ class FBLocators:
 
     @staticmethod
     def login_email(page):
-        return page.locator('#email')
+        return page.locator('input[name="email"]')
 
     @staticmethod
     def login_password(page):
-        return page.locator('#pass')
+        return page.locator('input[name="pass"]')
 
     @staticmethod
     def login_button(page):
