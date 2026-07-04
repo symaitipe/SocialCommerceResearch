@@ -7,7 +7,6 @@ import "./Home.css";
 const Home = () => {
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
-  const [title, setTitle] = useState("");
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
@@ -30,22 +29,18 @@ const Home = () => {
   }, []);
 
   const handleFetch = async () => {
-    if (!url.trim() || !title.trim()) {
-      setError(
-        "Please enter both the Facebook post URL and a title to verify.",
-      );
+    if (!url.trim()) {
+      setError("Please enter a Facebook post URL.");
       return;
     }
     setError(null);
     setFetching(true);
     try {
-      const result = await fetchPost(url.trim(), title.trim());
+      const result = await fetchPost(url.trim(), "");
       setUrl("");
-      setTitle("");
-      // Give the background pipeline a moment, then refresh post list
       setTimeout(loadPosts, 2000);
       alert(
-        `Fetch started for post ${result.post_id}. A browser window will open — complete login/CAPTCHA there if needed.`,
+        `Fetch started for post ${result.post_id}. Comments are being analyzed in the background.`,
       );
     } catch (err) {
       setError("Failed to start fetch. Check backend logs.");
@@ -64,18 +59,13 @@ const Home = () => {
       <div className="fetch-box">
         <input
           type="text"
-          placeholder="Facebook post URL"
+          placeholder="Facebook post URL or Post ID"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Post title (to verify correct post)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleFetch()}
         />
         <button onClick={handleFetch} disabled={fetching}>
-          {fetching ? "Starting..." : "Fetch & Analyze"}
+          {fetching ? "Fetching..." : "Fetch & Analyze"}
         </button>
         {error && <div className="error-text">{error}</div>}
       </div>

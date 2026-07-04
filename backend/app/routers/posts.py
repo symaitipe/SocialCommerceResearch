@@ -8,7 +8,7 @@ from app.database import (
     get_summary_by_post,
     update_comment_status
 )
-from app.automation.pipeline import run_pipeline
+from app.graph.pipeline import run_pipeline
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
