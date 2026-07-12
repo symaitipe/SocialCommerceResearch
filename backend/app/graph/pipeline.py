@@ -5,7 +5,9 @@ from app.rules.ai_fallback import ai_fallback
 from app.database import (
     comment_exists,
     save_comment,
-    update_post_fetched
+    save_order,
+    update_post_fetched,
+    is_order_request_comment
 )
 
 
@@ -41,6 +43,7 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
     new_count     = 0
     skipped_count = 0
     ai_count      = 0
+    order_count   = 0
 
     for raw in raw_comments:
         fb_comment_id = raw.get('comment_id')
@@ -54,13 +57,68 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
         if not text:
             continue
 
-        # Step 4: Classify using new hybrid engine
+        parent_id = raw.get('parent_id')
+
+        # Step 4: Check if this is a reply to an order request
+        if parent_id and is_order_request_comment(parent_id):
+            # This is customer's order detail reply
+            # Hide it on Facebook to protect privacy
+            try:
+                from app.graph.fb_graph_fetcher import hide_comment
+                hide_result = await hide_comment(fb_comment_id)
+                if hide_result['success']:
+                    print(f"🔒 Hidden order detail comment from: {raw.get('commenter_name')}")
+                else:
+                    print(f"⚠️  Could not hide comment: {hide_result.get('error')}")
+            except Exception as e:
+                print(f"⚠️  Hide comment error: {str(e)}")
+
+            # Save as order_details intent
+            comment_data = {
+                'text':          text,
+                'language':      'english',
+                'intent':        'order_details',
+                'sentiment':     'neutral',
+                'confidence':    'high',
+                'route':         'rules_only',
+                'priority_score': 95,
+                'emoji_only':    False,
+                'ai_assisted':   False,
+            }
+
+            saved_id = save_comment(
+                result=comment_data,
+                post_id=post_id,
+                facebook_comment_id=fb_comment_id,
+                facebook_comment_url=raw.get('comment_url'),
+                commenter_name=raw.get('commenter_name'),
+                commenter_fb_id=raw.get('commenter_fb_id'),
+                parent_comment_id=parent_id,
+                product_category='general'
+            )
+
+            # Save to orders table
+            save_order(
+                post_id=post_id,
+                comment_id=saved_id,
+                order_request_comment_id=parent_id,
+                commenter_name=raw.get('commenter_name', ''),
+                commenter_fb_id=raw.get('commenter_fb_id', ''),
+                raw_details_text=text,
+                facebook_comment_url=raw.get('comment_url', '')
+            )
+
+            order_count += 1
+            new_count   += 1
+            continue
+
+        # Step 5: Classify using new hybrid engine
         result = classify(text)
 
-        # Step 5: AI fallback based on evidence-based routing
+        # Step 6: AI fallback based on evidence-based routing
         if result.route in ('ai_only', 'rules_ai_verify'):
             try:
-                fallback    = await ai_fallback(text, result.language)
+                fallback = await ai_fallback(text, result.language)
                 if result.route == 'ai_only':
                     intent    = fallback.get('intent',    'general')
                     sentiment = fallback.get('sentiment', 'neutral')
@@ -79,14 +137,17 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
             sentiment   = _map_sentiment(result.sentiment)
             ai_assisted = False
 
-        # Step 6: Save to database
+        # Step 7: Save to database
         comment_data = {
-            'text':        text,
-            'language':    result.language,
-            'intent':      intent,
-            'sentiment':   sentiment,
-            'emoji_only':  result.language == 'emoji',
-            'ai_assisted': ai_assisted,
+            'text':          text,
+            'language':      result.language,
+            'intent':        intent,
+            'sentiment':     sentiment,
+            'confidence':    result.confidence,
+            'route':         result.route,
+            'priority_score': result.priority_score,
+            'emoji_only':    result.language == 'emoji',
+            'ai_assisted':   ai_assisted,
         }
 
         save_comment(
@@ -95,15 +156,18 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
             facebook_comment_id=fb_comment_id,
             facebook_comment_url=raw.get('comment_url'),
             commenter_name=raw.get('commenter_name'),
+            commenter_fb_id=raw.get('commenter_fb_id'),
+            parent_comment_id=parent_id,
             product_category='general'
         )
         new_count += 1
 
-    # Step 7: Update post stats
-    update_post_fetched(post_id, len(raw_comments))
+    # Step 8: Update post stats
+    update_post_fetched(post_id, len(raw_comments), new_count)
 
     print(f"\n📊 Pipeline complete:")
     print(f"   ✅ New comments processed : {new_count}")
+    print(f"   📦 Order details captured : {order_count}")
     print(f"   🤖 AI assisted            : {ai_count}")
     print(f"   ⏭️  Skipped (exist)        : {skipped_count}")
     print(f"   📦 Total fetched          : {len(raw_comments)}")

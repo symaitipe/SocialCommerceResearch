@@ -18,11 +18,11 @@ async def fetch_post_comments(post_id: str) -> list[dict]:
     comments = []
     url = f"{BASE_URL}/{post_id}/comments"
     params = {
-        "fields":       "id,message,from,created_time",
-        "access_token": ACCESS_TOKEN,
-        "limit":        100,   # max per page
-        "filter":       "stream",  # gets all comments, not just top-level
-    }
+    "fields":       "id,message,from,created_time,parent",
+    "access_token": ACCESS_TOKEN,
+    "limit":        100,
+    "filter":       "stream",
+}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         while url:
@@ -41,11 +41,13 @@ async def fetch_post_comments(post_id: str) -> list[dict]:
 
                 sender = item.get("from", {})
                 comments.append({
-                    "comment_id":     item.get("id"),
-                    "commenter_name": sender.get("name", "Unknown"),
-                    "text":           message,
-                    "created_time":   item.get("created_time"),
-                    "comment_url":    f"https://www.facebook.com/{item.get('id')}"
+                    "comment_id":      item.get("id"),
+                    "commenter_name":  sender.get("name", "Unknown"),
+                    "commenter_fb_id": sender.get("id"),
+                    "text":            message,
+                    "created_time":    item.get("created_time"),
+                    "comment_url":     f"https://www.facebook.com/{item.get('id')}",
+                    "parent_id":       item.get("parent", {}).get("id")
                 })
 
             # Pagination — follow next page if exists
@@ -82,6 +84,30 @@ async def extract_post_id_from_url(post_url: str) -> str | None:
 
     # All other formats (pfbid, share links) → resolve via Graph API
     return await _resolve_share_link(post_url)
+
+
+#Hide comments for customer confirmations with personal data
+async def hide_comment(comment_id: str) -> dict:
+    """
+    Hide a Facebook comment from public view.
+    Used to protect customer personal details.
+    Comment remains visible to commenter and page admin only.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{BASE_URL}/{comment_id}",
+            params={
+                "is_hidden":    "true",
+                "access_token": ACCESS_TOKEN,
+            }
+        )
+        data = response.json()
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error":   data.get("error", {}).get("message", "Unknown error")
+            }
+        return {"success": True}
 
 async def _resolve_share_link(share_url: str) -> str | None:
     """
