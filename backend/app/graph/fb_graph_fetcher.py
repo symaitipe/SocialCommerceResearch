@@ -144,3 +144,28 @@ async def _resolve_share_link(share_url: str) -> str | None:
     except Exception as e:
         print(f"❌ Share link resolution error: {str(e)}")
         return None
+    
+
+async def post_comment_reply(comment_id: str, message: str) -> dict:
+    """
+    Post a reply to a Facebook comment as the Page.
+    Requires pages_manage_engagement permission.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{BASE_URL}/{comment_id}/replies",
+            params={
+                "message":      message,
+                "access_token": ACCESS_TOKEN,
+            }
+        )
+        data = response.json()
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error":   data.get("error", {}).get("message", "Unknown error")
+            }
+        return {
+            "success":    True,
+            "comment_id": data.get("id")
+        }

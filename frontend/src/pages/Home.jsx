@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchPost, getAllPosts } from "../services/api";
 import PostCard from "../components/PostCard";
@@ -11,6 +11,8 @@ const Home = () => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const eventSourceRef = useRef(null);
 
   const loadPosts = async () => {
     setLoading(true);
@@ -26,7 +28,42 @@ const Home = () => {
 
   useEffect(() => {
     loadPosts();
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
   }, []);
+
+  const startProgressTracking = (postId) => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    setProgress({ status: "starting", total: 0, done: false });
+
+    const es = new EventSource(
+      `http://localhost:8000/posts/${postId}/progress`,
+    );
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      setProgress(data);
+      if (data.done) {
+        es.close();
+        loadPosts();
+        setTimeout(() => setProgress(null), 3000);
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      loadPosts();
+      setProgress(null);
+    };
+
+    eventSourceRef.current = es;
+  };
 
   const handleFetch = async () => {
     if (!url.trim()) {
@@ -38,10 +75,7 @@ const Home = () => {
     try {
       const result = await fetchPost(url.trim(), "");
       setUrl("");
-      setTimeout(loadPosts, 2000);
-      alert(
-        `Fetch started for post ${result.post_id}. Comments are being analyzed in the background.`,
-      );
+      startProgressTracking(result.post_id);
     } catch (err) {
       setError("Failed to start fetch. Check backend logs.");
     } finally {
@@ -63,12 +97,43 @@ const Home = () => {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleFetch()}
+          disabled={fetching}
         />
-        <button onClick={handleFetch} disabled={fetching}>
-          {fetching ? "Fetching..." : "Fetch & Analyze"}
+        <button onClick={handleFetch} disabled={fetching || !!progress}>
+          {fetching ? "Starting..." : "Fetch & Analyze"}
         </button>
         {error && <div className="error-text">{error}</div>}
       </div>
+
+      {/* Progress Bar */}
+      {progress && (
+        <div className="progress-box">
+          <div className="progress-header">
+            <span>
+              {progress.done
+                ? `✅ Done! ${progress.total} comments analyzed`
+                : `⏳ Fetching and analyzing comments...`}
+            </span>
+            {!progress.done && (
+              <span className="progress-count">
+                {progress.total > 0
+                  ? `${progress.total} fetched`
+                  : "Starting..."}
+              </span>
+            )}
+          </div>
+          <div className="progress-bar-track">
+            <div
+              className={`progress-bar-fill ${progress.done ? "done" : "animating"}`}
+            />
+          </div>
+          {progress.done && progress.new_count > 0 && (
+            <div className="progress-new">
+              +{progress.new_count} new comments added
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="posts-list">
         <h3>Tracked Posts</h3>
