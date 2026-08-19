@@ -1,20 +1,17 @@
 """
-AI fallback for the SocialSell 14-category intent taxonomy.
-
-This replacement keeps the current local Ollama/Qwen setup used in the
-version2 repository, but fixes the biggest functional problem in the current
-prompt: the old prompt exposes only 6 broad intents and therefore cannot
-correctly return the four AI-only categories.
-
-If the final implementation is Gemini instead of Ollama, keep this taxonomy
-and JSON contract but replace only the API-call section.
+AI fallback using Google Gemini API.
+Covers the 14-category intent taxonomy for Sri Lankan social commerce comments.
 """
 
+import os
 import json
-import httpx
+from dotenv import load_dotenv
+from google import genai
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5:latest"
+load_dotenv()
+
+_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 VALID_INTENTS = {
     "purchase_intent",
@@ -81,8 +78,6 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
 11. negative_feedback_complaint
     Customer complains about product quality, damage, failure, seller response,
     delivery failure, or another negative experience.
-    IMPORTANT: if the problem is specifically a broken contact channel such as
-    WhatsApp/website/phone, consider contact_request instead.
 
 12. suggestion
     Customer gives an idea or recommendation for how the seller/product/service
@@ -98,29 +93,28 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
 Important distinctions:
 - "price?" / "price kiyada?" -> price_inquiry
 - "too much price" / "price is too high" -> price_complaint
-- "gaththa / received" alone can be order_purchase_confirmation
-- "gaththa eka wada na" / "received it but it does not work"
-  -> negative_feedback_complaint
-- "WhatsApp number wada na" -> contact_request, not product complaint
-- A quality question such as "hodaida?" is product_inquiry, not positive_feedback
+- "gaththa / received" alone -> order_purchase_confirmation
+- "gaththa eka wada na" -> negative_feedback_complaint
+- "WhatsApp number wada na" -> contact_request
+- "hodaida?" is a quality question -> product_inquiry, not positive_feedback
 
 Detected language mode: {language}
 Comment: {text}
 
-Return JSON only:
-{{"intent":"<one valid intent>","sentiment":"positive|negative|neutral"}}
-"""
+Return JSON only — no explanation, no markdown, no extra text:
+{{"intent":"<one valid intent>","sentiment":"positive|negative|neutral"}}"""
 
 
 def _clean_intent(value: str) -> str:
     value = str(value or "").strip().lower().replace(" ", "_")
     aliases = {
-        "payment_method": "payment_method_inquiry",
-        "warranty_service": "warranty_service_inquiry",
-        "order_confirmation": "order_purchase_confirmation",
-        "negative_feedback": "negative_feedback_complaint",
-        "noise": "noise_off_topic",
-        "general": "noise_off_topic",
+        "payment_method":        "payment_method_inquiry",
+        "warranty_service":      "warranty_service_inquiry",
+        "order_confirmation":    "order_purchase_confirmation",
+        "negative_feedback":     "negative_feedback_complaint",
+        "noise":                 "noise_off_topic",
+        "general":               "noise_off_topic",
+        "feedback":              "positive_feedback",
     }
     return aliases.get(value, value)
 
@@ -129,44 +123,40 @@ async def ai_fallback(text: str, language: str) -> dict:
     try:
         prompt = PROMPT_TEMPLATE.format(text=text, language=language)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                OLLAMA_URL,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    # Low temperature is preferable for repeatable classification.
-                    "options": {"temperature": 0.1},
-                },
+        # Gemini is synchronous — run in executor to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: _client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
             )
-            response.raise_for_status()
+        )
 
-        data = response.json()
-        raw = data.get("response", "").strip()
+        raw = response.text.strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         result = json.loads(raw)
 
-        intent = _clean_intent(result.get("intent"))
+        intent    = _clean_intent(result.get("intent", ""))
         sentiment = str(result.get("sentiment", "neutral")).strip().lower()
 
         if intent not in VALID_INTENTS:
-            raise ValueError(f"LLM returned unsupported intent: {intent!r}")
+            raise ValueError(f"Gemini returned unsupported intent: {intent!r}")
 
         if sentiment not in {"positive", "negative", "neutral"}:
             sentiment = "neutral"
 
         return {
-            "intent": intent,
-            "sentiment": sentiment,
+            "intent":      intent,
+            "sentiment":   sentiment,
             "ai_assisted": True,
         }
 
     except Exception as e:
-        # Do not silently pretend a failed AI call was a valid classification.
         return {
-            "intent": "noise_off_topic",
-            "sentiment": "neutral",
+            "intent":      "noise_off_topic",
+            "sentiment":   "neutral",
             "ai_assisted": False,
-            "error": str(e),
+            "error":       str(e),
         }
