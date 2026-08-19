@@ -1,30 +1,129 @@
+"""
+AI fallback for the SocialSell 14-category intent taxonomy.
+
+This replacement keeps the current local Ollama/Qwen setup used in the
+version2 repository, but fixes the biggest functional problem in the current
+prompt: the old prompt exposes only 6 broad intents and therefore cannot
+correctly return the four AI-only categories.
+
+If the final implementation is Gemini instead of Ollama, keep this taxonomy
+and JSON contract but replace only the API-call section.
+"""
+
 import json
 import httpx
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen2.5:latest"
 
-PROMPT_TEMPLATE = """You are a comment classification assistant for a Sri Lankan social media selling platform.
-You will receive a customer comment written in Sinhala, Singlish, English, or a mix.
+VALID_INTENTS = {
+    "purchase_intent",
+    "product_inquiry",
+    "price_inquiry",
+    "price_complaint",
+    "delivery_inquiry",
+    "location_availability",
+    "payment_method_inquiry",
+    "warranty_service_inquiry",
+    "order_purchase_confirmation",
+    "positive_feedback",
+    "negative_feedback_complaint",
+    "suggestion",
+    "contact_request",
+    "noise_off_topic",
+}
 
-Intent definitions:
-- price_inquiry: asking about price, cost, how much
-- delivery_inquiry: asking about delivery, shipping, when it arrives
-- purchase_intent: expressing desire to buy or order
-- product_inquiry: asking about availability, size, color, material, details
-- feedback: giving opinion, review, compliment or complaint about product
-- general: casual conversation, greeting, unclear meaning
+PROMPT_TEMPLATE = """You classify customer comments from Sri Lankan product-selling social media posts.
 
-Sentiment definitions:
-- positive: happy, satisfied, interested, enthusiastic
-- negative: unhappy, complaining, disappointed
-- neutral: no clear emotion, just asking a question
+The comment may be written in English, Sinhala, Singlish (romanised Sinhala),
+or a mixture.
 
-Language detected: {language}
+Choose exactly ONE primary intent from this 14-category taxonomy:
+
+1. purchase_intent
+   Customer shows a clear desire or plan to buy/order the product.
+
+2. product_inquiry
+   Customer asks about product features, variants, quality, use, size, colour,
+   availability of a product option, or other product details.
+
+3. price_inquiry
+   Customer asks what the price/cost is.
+
+4. price_complaint
+   Customer is dissatisfied with the price, says it is too high/expensive,
+   or complains about a price increase. This is NOT a normal price question.
+
+5. delivery_inquiry
+   Customer asks about delivery, courier, shipping, delivery charges,
+   delivery time, or whether delivery is available.
+
+6. location_availability
+   Customer asks where the shop/showroom/branch is, where the product can be
+   obtained, or about physical-location availability.
+
+7. payment_method_inquiry
+   Customer asks about card payment, Koko/installments, bank transfer,
+   cash-on-delivery, or another payment method.
+
+8. warranty_service_inquiry
+   Customer asks about warranty, guarantee, repair, replacement, return,
+   service centre, after-sales service, or a warranty claim.
+
+9. order_purchase_confirmation
+   Customer says they already ordered, bought, received, or obtained the
+   product. If the same sentence mainly reports a fault/problem after receiving
+   it, prefer negative_feedback_complaint.
+
+10. positive_feedback
+    Customer gives praise, recommendation, satisfaction, or a positive review.
+
+11. negative_feedback_complaint
+    Customer complains about product quality, damage, failure, seller response,
+    delivery failure, or another negative experience.
+    IMPORTANT: if the problem is specifically a broken contact channel such as
+    WhatsApp/website/phone, consider contact_request instead.
+
+12. suggestion
+    Customer gives an idea or recommendation for how the seller/product/service
+    could be improved.
+
+13. contact_request
+    Customer asks how to contact the seller, asks for a phone/WhatsApp/contact
+    method, or reports that a seller contact channel is not working.
+
+14. noise_off_topic
+    Comment has no meaningful product/customer intent for this taxonomy.
+
+Important distinctions:
+- "price?" / "price kiyada?" -> price_inquiry
+- "too much price" / "price is too high" -> price_complaint
+- "gaththa / received" alone can be order_purchase_confirmation
+- "gaththa eka wada na" / "received it but it does not work"
+  -> negative_feedback_complaint
+- "WhatsApp number wada na" -> contact_request, not product complaint
+- A quality question such as "hodaida?" is product_inquiry, not positive_feedback
+
+Detected language mode: {language}
 Comment: {text}
 
-Respond ONLY in this exact JSON format with no explanation, no markdown, no extra text:
-{{"intent": "...", "sentiment": "..."}}"""
+Return JSON only:
+{{"intent":"<one valid intent>","sentiment":"positive|negative|neutral"}}
+"""
+
+
+def _clean_intent(value: str) -> str:
+    value = str(value or "").strip().lower().replace(" ", "_")
+    aliases = {
+        "payment_method": "payment_method_inquiry",
+        "warranty_service": "warranty_service_inquiry",
+        "order_confirmation": "order_purchase_confirmation",
+        "negative_feedback": "negative_feedback_complaint",
+        "noise": "noise_off_topic",
+        "general": "noise_off_topic",
+    }
+    return aliases.get(value, value)
+
 
 async def ai_fallback(text: str, language: str) -> dict:
     try:
@@ -36,31 +135,38 @@ async def ai_fallback(text: str, language: str) -> dict:
                 json={
                     "model": OLLAMA_MODEL,
                     "prompt": prompt,
-                    "stream": False
-                }
+                    "stream": False,
+                    # Low temperature is preferable for repeatable classification.
+                    "options": {"temperature": 0.1},
+                },
             )
-        
-        print(f"Ollama status code: {response.status_code}")
-        print(f"Ollama raw response: {response.text}")
+            response.raise_for_status()
 
         data = response.json()
         raw = data.get("response", "").strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         result = json.loads(raw)
 
+        intent = _clean_intent(result.get("intent"))
+        sentiment = str(result.get("sentiment", "neutral")).strip().lower()
+
+        if intent not in VALID_INTENTS:
+            raise ValueError(f"LLM returned unsupported intent: {intent!r}")
+
+        if sentiment not in {"positive", "negative", "neutral"}:
+            sentiment = "neutral"
+
         return {
-            "intent":      result.get("intent", "general"),
-            "sentiment":   result.get("sentiment", "neutral"),
-            "ai_assisted": True
+            "intent": intent,
+            "sentiment": sentiment,
+            "ai_assisted": True,
         }
 
     except Exception as e:
-        import traceback
-        print(f"AI Fallback Error: {str(e)}")
-        print(traceback.format_exc())
+        # Do not silently pretend a failed AI call was a valid classification.
         return {
-            "intent":      "general",
-            "sentiment":   "neutral",
+            "intent": "noise_off_topic",
+            "sentiment": "neutral",
             "ai_assisted": False,
-            "error":       str(e)
+            "error": str(e),
         }

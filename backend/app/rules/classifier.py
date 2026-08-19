@@ -22,6 +22,10 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
+from app.rules.routing_guards import (
+    detect_ai_only_risk,
+    needs_confirmation_context_review,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. EVIDENCE MATRIX  (real counts from the annotated corpus — do not invent)
@@ -583,8 +587,62 @@ def classify(text: str) -> Classification:
             priority_score=0,
         )
 
+    # ---- AI-only risk guard ---------------------------------------------------
+    # Detects cues for the 4 sparse AI-only categories (Warranty/Service,
+    # Contact Request, Price Complaint, Suggestion) BEFORE rule scoring,
+    # so shared vocabulary (e.g. "price") doesn't leak into a rule category.
+    ai_only_guard = detect_ai_only_risk(norm)
+    if ai_only_guard is not None:
+        return Classification(
+            text=text,
+            language=lang,
+            primary_intent=None,
+            secondary_intent=None,
+            sentiment="Neutral",
+            confidence="none",
+            route="ai_only",
+            ai_assisted=True,
+            matched_keywords={},
+            scores={},
+            evidence_count=0,
+            route_reason=ai_only_guard.reason,
+            priority_score=0,
+        )
+
     # ---- Keyword scoring ----------------------------------------------------
     scores, matches = _score_categories(norm)
+
+    # ---- Order-confirmation context guard ------------------------------------
+    # An order/receipt word ("gaththa", "ඕඩර් කරා") used inside a sentence
+    # that also describes a problem should not be trusted as a rule-only
+    # Order/Purchase Confirmation. Route to AI instead of forcing a category.
+    confirmation_review = needs_confirmation_context_review(norm)
+
+    if confirmation_review and scores:
+        ranked_for_guard = sorted(
+            scores.items(), key=lambda kv: kv[1], reverse=True
+        )
+        guarded_primary = ranked_for_guard[0][0]
+
+        if (
+            guarded_primary == "Order/Purchase Confirmation"
+            or "Order/Purchase Confirmation" in scores
+        ):
+            return Classification(
+                text=text,
+                language=lang,
+                primary_intent=guarded_primary,
+                secondary_intent="Negative Feedback/Complaint",
+                sentiment="Negative",
+                confidence="medium",
+                route="rules_ai_verify",
+                ai_assisted=True,
+                matched_keywords=matches,
+                scores=scores,
+                evidence_count=EVIDENCE.get((guarded_primary, lang), 0),
+                route_reason=confirmation_review,
+                priority_score=PRIORITY_WEIGHTS.get(guarded_primary, 0),
+            )
 
     if not scores:
         return Classification(
@@ -615,7 +673,6 @@ def classify(text: str) -> Classification:
     # ---- Ambiguous: two categories tied or nearly tied -----------------------
     if len(ranked) > 1 and (primary_score - ranked[1][1]) < CLEAR_WINNER_MARGIN \
             and ranked[1][1] >= SCORE_THRESHOLD:
-        # keep the rule guess but require AI verification
         ev = EVIDENCE.get((primary, lang), 0)
         return Classification(
             text=text, language=lang, primary_intent=primary,

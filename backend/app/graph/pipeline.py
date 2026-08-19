@@ -115,22 +115,34 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
         # Step 5: Classify using new hybrid engine
         result = classify(text)
 
-        # Step 6: AI fallback based on evidence-based routing
-        if result.route in ('ai_only', 'rules_ai_verify'):
+        # Step 6: AI fallback / verification based on routing
+        if result.route in ("ai_only", "rules_ai_verify"):
             try:
                 fallback = await ai_fallback(text, result.language)
-                if result.route == 'ai_only':
-                    intent    = fallback.get('intent',    'general')
-                    sentiment = fallback.get('sentiment', 'neutral')
+                fallback_intent = fallback.get("intent")
+                fallback_sentiment = fallback.get(
+                    "sentiment",
+                    _map_sentiment(result.sentiment),
+                )
+
+                if result.route == "ai_only":
+                    # Rule layer explicitly declined to decide.
+                    intent = fallback_intent or "noise_off_topic"
                 else:
-                    intent    = _map_intent(result.primary_intent)
-                    sentiment = fallback.get('sentiment', _map_sentiment(result.sentiment))
-                ai_assisted = fallback.get('ai_assisted', False)
-                ai_count   += 1
+                    # TRUE verification:
+                    # let the AI return the final taxonomy label instead of
+                    # calling AI and then ignoring its intent.
+                    intent = fallback_intent or _map_intent(result.primary_intent)
+
+                sentiment = fallback_sentiment
+                ai_assisted = fallback.get("ai_assisted", False)
+                ai_count += 1
+
             except Exception as e:
                 print(f"⚠️  AI fallback error: {str(e)}")
-                intent      = _map_intent(result.primary_intent)
-                sentiment   = _map_sentiment(result.sentiment)
+                # Fail safely to the rule guess only when one exists.
+                intent = _map_intent(result.primary_intent)
+                sentiment = _map_sentiment(result.sentiment)
                 ai_assisted = False
         else:
             intent      = _map_intent(result.primary_intent)
@@ -175,20 +187,31 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
 
 def _map_intent(intent: str | None) -> str:
     if not intent:
-        return 'general'
+        return "noise_off_topic"
+
     mapping = {
-        'Purchase Intent':             'purchase_intent',
-        'Product Inquiry':             'product_inquiry',
-        'Price Inquiry':               'price_inquiry',
-        'Delivery Inquiry':            'delivery_inquiry',
-        'Location/Availability':       'location_availability',
-        'Payment Method Inquiry':      'payment_method',
-        'Order/Purchase Confirmation': 'order_confirmation',
-        'Positive Feedback':           'positive_feedback',
-        'Negative Feedback/Complaint': 'negative_feedback',
-        'Noise/Off-topic':             'noise',
+        "Purchase Intent": "purchase_intent",
+        "Product Inquiry": "product_inquiry",
+        "Price Inquiry": "price_inquiry",
+        "Price Complaint": "price_complaint",
+        "Delivery Inquiry": "delivery_inquiry",
+        "Location/Availability": "location_availability",
+        "Payment Method Inquiry": "payment_method_inquiry",
+        "Warranty/Service Inquiry": "warranty_service_inquiry",
+        "Order/Purchase Confirmation": "order_purchase_confirmation",
+        "Positive Feedback": "positive_feedback",
+        "Negative Feedback/Complaint": "negative_feedback_complaint",
+        "Suggestion": "suggestion",
+        "Contact Request": "contact_request",
+        "Noise/Off-topic": "noise_off_topic",
     }
-    return mapping.get(intent, 'general')
+
+    # If AI already returns the normalized API label, preserve it.
+    normalized_values = set(mapping.values())
+    if intent in normalized_values:
+        return intent
+
+    return mapping.get(intent, "noise_off_topic")
 
 
 def _map_sentiment(sentiment: str | None) -> str:
