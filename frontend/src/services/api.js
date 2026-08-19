@@ -2,49 +2,38 @@ import axios from "axios";
 
 const API_BASE = "http://localhost:8000";
 
-export const analyzeSingle = async (text, product_category = "general") => {
-  const response = await axios.post(`${API_BASE}/analyze/single`, {
-    text,
-    product_category,
+export const fetchPost = async (facebook_url, title) => {
+  const response = await axios.post(`${API_BASE}/posts/fetch`, {
+    facebook_url,
+    title,
   });
   return response.data;
 };
 
-export const analyzeBatch = async (comments, product_category = "general") => {
-  const response = await axios.post(`${API_BASE}/analyze/batch`, {
-    comments,
-    product_category,
-  });
+export const getAllPosts = async () => {
+  const response = await axios.get(`${API_BASE}/posts/`);
   return response.data;
 };
 
-export const getAllComments = async () => {
-  const response = await axios.get(`${API_BASE}/comments/`);
+export const getPost = async (postId) => {
+  const response = await axios.get(`${API_BASE}/posts/${postId}`);
   return response.data;
 };
 
-export const getCommentsByCategory = async (category) => {
-  const response = await axios.get(
-    `${API_BASE}/comments/?category=${category}`,
+export const getPostComments = async (postId) => {
+  const response = await axios.get(`${API_BASE}/posts/${postId}/comments`);
+  return response.data;
+};
+
+export const getPostSummary = async (postId) => {
+  const response = await axios.get(`${API_BASE}/posts/${postId}/summary`);
+  return response.data;
+};
+
+export const updateCommentStatus = async (commentId, status) => {
+  const response = await axios.patch(
+    `${API_BASE}/posts/comments/${commentId}/status`,
+    { status },
   );
-  return response.data;
-};
-
-export const getSummary = async () => {
-  const response = await axios.get(`${API_BASE}/comments/summary`);
-  return response.data;
-};
-
-export const getSummaryByCategory = async (category) => {
-  const response = await axios.get(
-    `${API_BASE}/comments/summary?category=${category}`,
-  );
-  return response.data;
-};
-
-export const updateCommentStatus = async (id, status) => {
-  const response = await axios.patch(`${API_BASE}/comments/${id}/status`, {
-    status,
-  });
   return response.data;
 };
