@@ -1,27 +1,43 @@
 .post-card {
   background: white;
-  border-radius: 10px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 2px solid transparent;
-  margin-bottom: 10px;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.15s;
 }
 
 .post-card:hover {
-  border-color: #1877f2;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.09);
+}
+
+.post-card-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.post-thumb-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .post-card-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
-  min-width: 0;
 }
 
 .post-card-title-row {
@@ -32,45 +48,150 @@
 
 .post-card-title {
   font-weight: 700;
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   color: #1c1e21;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.new-badge {
-  background: #dc2626;
-  color: white;
-  font-size: 0.7rem;
+.tracking-badge {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.68rem;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 20px;
   flex-shrink: 0;
 }
 
-.post-card-url {
-  font-size: 0.75rem;
-  color: #94a3b8;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.post-card-footer {
+.post-card-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
-  color: #65676b;
-  margin-top: 2px;
+  font-size: 0.8rem;
+  color: #64748b;
 }
 
-.dot {
+.post-card-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.post-card-meta-dot {
   color: #cbd5e1;
 }
 
+.post-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 70px;
+}
+
+.sync-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sync-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.sync-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.sync-btn svg.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.new-badge {
+  background: #dbeafe;
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
 .post-card-arrow {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.post-card-arrow:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.post-card-progress {
+  padding-left: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.post-card-progress-track {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.post-card-progress-fill {
+  height: 100%;
+  width: 100%;
+  background: #2563eb;
+  border-radius: 20px;
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.post-card-progress-text {
+  font-size: 0.75rem;
   color: #94a3b8;
-  flex-shrink: 0;
 }

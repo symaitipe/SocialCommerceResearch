@@ -1,4 +1,4 @@
-import { ChevronRight, MessageCircle } from "lucide-react";
+import { MessageCircle, RefreshCw, ArrowRight, Package } from "lucide-react";
 import "./PostCard.css";
 
 const timeAgo = (timestamp) => {
@@ -13,28 +13,74 @@ const timeAgo = (timestamp) => {
   return `${days}d ago`;
 };
 
-const PostCard = ({ post, onClick }) => {
-  const newCount = post.new_count || 0;
+// No real product image is fetched from Facebook yet (would need the
+// Graph API attachments{media} field on the post). This is a deliberate
+// placeholder block, not a fake photo.
+const PostThumbnail = () => (
+  <div className="post-thumb-placeholder">
+    <Package size={22} />
+  </div>
+);
+
+const PostCard = ({ post, progress, onOpen, onSync }) => {
+  const newCount = post.last_sync_new_count || 0;
   const total = post.total_comments || 0;
+  const isSyncing = !!progress && !progress.done;
 
   return (
-    <div className="post-card" onClick={onClick}>
-      <div className="post-card-info">
-        <div className="post-card-title-row">
-          <span className="post-card-title">
-            {post.title || post.facebook_url}
-          </span>
-          {newCount > 0 && <span className="new-badge">{newCount} new</span>}
-        </div>
-        <span className="post-card-url">{post.facebook_url}</span>
-        <div className="post-card-footer">
-          <MessageCircle size={13} />
-          <span>{total} comments</span>
-          <span className="dot">·</span>
-          <span>synced {timeAgo(post.last_fetched_at)}</span>
+    <div className="post-card">
+      <div className="post-card-main" onClick={onOpen}>
+        <PostThumbnail />
+        <div className="post-card-info">
+          <div className="post-card-title-row">
+            <span className="post-card-title">
+              {post.title || post.facebook_url}
+            </span>
+            <span className="tracking-badge">Tracking</span>
+          </div>
+          <div className="post-card-meta">
+            <span className="post-card-meta-item">
+              <MessageCircle size={13} />
+              {total} comments
+            </span>
+            <span className="post-card-meta-dot">·</span>
+            <span>Last synced {timeAgo(post.last_fetched_at)}</span>
+          </div>
         </div>
       </div>
-      <ChevronRight size={18} className="post-card-arrow" />
+
+      <div className="post-card-actions">
+        <button
+          className="sync-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSync();
+          }}
+          disabled={isSyncing}
+        >
+          <RefreshCw size={14} className={isSyncing ? "spin" : ""} />
+          {isSyncing ? "Syncing..." : "Sync now"}
+        </button>
+        {newCount > 0 && !isSyncing && (
+          <span className="new-badge">{newCount} new</span>
+        )}
+        <button className="post-card-arrow" onClick={onOpen} title="Open post">
+          <ArrowRight size={16} />
+        </button>
+      </div>
+
+      {isSyncing && (
+        <div className="post-card-progress">
+          <div className="post-card-progress-track">
+            <div className="post-card-progress-fill" />
+          </div>
+          <span className="post-card-progress-text">
+            {progress.total > 0
+              ? `${progress.total} fetched...`
+              : "Starting..."}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
