@@ -4,6 +4,12 @@ backend/__pycache__/
 backend/*.pyc
 backend/.env
 backend/comments.db
+backend/comments.db-shm
+backend/comments.db-wal
+
+# Facebook session (contains live cookies — must never be committed)
+fb_session/
+fb_session/*
 
 # Frontend
 frontend/node_modules/
