@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import language, intent, sentiment, analyze, comments, posts
+from app.routers import comments, posts
 from app.database import init_db
 import asyncio
 import sys
@@ -30,10 +30,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(language.router)
-app.include_router(intent.router)
-app.include_router(sentiment.router)
-app.include_router(analyze.router)
 app.include_router(comments.router)
 app.include_router(posts.router)
 
