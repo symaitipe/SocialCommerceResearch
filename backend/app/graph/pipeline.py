@@ -75,15 +75,13 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
 
             # Save as order_details intent
             comment_data = {
-                'text':          text,
-                'language':      'english',
-                'intent':        'order_details',
-                'sentiment':     'neutral',
-                'confidence':    'high',
-                'route':         'rules_only',
-                'priority_score': 95,
-                'emoji_only':    False,
-                'ai_assisted':   False,
+                'text':        text,
+                'language':    'english',
+                'intent':      'order_details',
+                'confidence':  'high',
+                'route':       'rules_only',
+                'emoji_only':  False,
+                'ai_assisted': False,
             }
 
             saved_id = save_comment(
@@ -120,10 +118,6 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
             try:
                 fallback = await ai_fallback(text, result.language)
                 fallback_intent = fallback.get("intent")
-                fallback_sentiment = fallback.get(
-                    "sentiment",
-                    _map_sentiment(result.sentiment),
-                )
 
                 if result.route == "ai_only":
                     # Rule layer explicitly declined to decide.
@@ -134,7 +128,6 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
                     # calling AI and then ignoring its intent.
                     intent = fallback_intent or _map_intent(result.primary_intent)
 
-                sentiment = fallback_sentiment
                 ai_assisted = fallback.get("ai_assisted", False)
                 ai_count += 1
 
@@ -142,24 +135,20 @@ async def run_pipeline(post_id: int, facebook_url: str, post_title: str = ""):
                 print(f"⚠️  AI fallback error: {str(e)}")
                 # Fail safely to the rule guess only when one exists.
                 intent = _map_intent(result.primary_intent)
-                sentiment = _map_sentiment(result.sentiment)
                 ai_assisted = False
         else:
             intent      = _map_intent(result.primary_intent)
-            sentiment   = _map_sentiment(result.sentiment)
             ai_assisted = False
 
         # Step 7: Save to database
         comment_data = {
-            'text':          text,
-            'language':      result.language,
-            'intent':        intent,
-            'sentiment':     sentiment,
-            'confidence':    result.confidence,
-            'route':         result.route,
-            'priority_score': result.priority_score,
-            'emoji_only':    result.language == 'emoji',
-            'ai_assisted':   ai_assisted,
+            'text':        text,
+            'language':    result.language,
+            'intent':      intent,
+            'confidence':  result.confidence,
+            'route':       result.route,
+            'emoji_only':  result.language == 'emoji',
+            'ai_assisted': ai_assisted,
         }
 
         save_comment(
@@ -212,9 +201,3 @@ def _map_intent(intent: str | None) -> str:
         return intent
 
     return mapping.get(intent, "noise_off_topic")
-
-
-def _map_sentiment(sentiment: str | None) -> str:
-    if not sentiment:
-        return 'neutral'
-    return sentiment.lower()
