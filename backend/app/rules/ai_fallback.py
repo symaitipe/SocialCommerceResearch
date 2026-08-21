@@ -154,6 +154,7 @@ async def ai_fallback(text: str, language: str) -> dict:
         }
 
     except Exception as e:
+        print(f"⚠️  Gemini fallback failed: {str(e)}")
         return {
             "intent":      "noise_off_topic",
             "sentiment":   "neutral",
