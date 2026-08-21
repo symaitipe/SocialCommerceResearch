@@ -16,12 +16,24 @@ reason a comment was routed to AI.
 Evidence matrix source: Corpus A (536 comments, 5 verticals, sequential
 collection) + Corpus B (52 targeted complaint/negative examples).
 Total: 588 annotated comments.
+
+Rule provenance: most keywords below were directly observed in the
+annotated corpus (source="corpus", the default). A small number of
+keywords are marked source="synthetic" — manually transliterated into
+Sinhala/Singlish script for unambiguous brand/service proper nouns
+(e.g. "Koko") where no corpus example of that script rendering was
+observed, but phonetic variation is minimal. These are flagged
+explicitly rather than silently mixed into corpus-derived evidence.
 """
 
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
+from app.rules.routing_guards import (
+    detect_ai_only_risk,
+    needs_confirmation_context_review,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. EVIDENCE MATRIX  (real counts from the annotated corpus — do not invent)
@@ -180,8 +192,10 @@ def detect_language(text: str) -> str:
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. KEYWORD RULES
-#    Every keyword below was observed in the annotated corpus. Each rule is
-#    (pattern, weight). Weight reflects specificity:
+#    Every keyword below was observed in the annotated corpus, UNLESS
+#    explicitly marked source="synthetic" (see module docstring). Each
+#    rule is (pattern, weight, is_regex, source). Weight reflects
+#    specificity:
 #      3 = unambiguous, category-defining ("koko", "kiyada", "ganna epa")
 #      2 = strong signal, rare collisions
 #      1 = supporting signal, needs company or wins only unopposed
@@ -194,9 +208,13 @@ class Rule:
     pattern: str
     weight: int
     is_regex: bool = False
+    source: str = "corpus"   # "corpus" = observed in annotated data
+                              # "synthetic" = manually transliterated,
+                              #   used only for unambiguous brand/service
+                              #   names where phonetic variation is minimal
 
-def R(p, w, rx=False):
-    return Rule(p, w, rx)
+def R(p, w, rx=False, source="corpus"):
+    return Rule(p, w, rx, source)
 
 KEYWORD_RULES: dict[str, list[Rule]] = {
 
@@ -245,13 +263,22 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     ],
 
     # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
-    # "koko" is the single most specific token in the whole corpus
+    # "koko" is the single most specific token in the whole corpus.
+    # "cod" moved here from Delivery Inquiry — COD names a delivery
+    # *method* but its real signal is almost always a payment question.
     "Payment Method Inquiry": [
         R(r"\bkoko\b", 3, True), R(r"\binstallment", 3, True),
+        R(r"\bcod\b", 3, True),
         R(r"\bcard payment", 3, True), R(r"\bcard eken\b", 3, True),
         R(r"\bpayment (method|plan|available|accept)", 3, True),
-        R(r"\bbank transfer\b", 3, True), R(r"\bcash on delivery\b", 2, True),
+        R(r"\bbank transfer\b", 3, True),
+        R(r"\bcash on delivery\b", 3, True),
         R(r"\bpay(ment)? .{0,12}(available|accept|puluwanda|thiyanawada)", 2, True),
+        # Synthetic — Koko is a proper noun (payment service brand); no
+        # corpus example of this script rendering was observed (evidence
+        # table shows only 1 Sinhala example for this whole category).
+        R("කොකො", 3, source="synthetic"),
+        R(r"\bkokoo\b", 3, True, source="synthetic"),
     ],
 
     # ── PRICE INQUIRY ─────────────────────────────────────────────────────
@@ -270,7 +297,7 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     "Delivery Inquiry": [
         R(r"\bdelivery (charge|cost|fee|kiyada|kohomada)", 3, True),
         R(r"\bdawas kiy[ak]", 3, True), R(r"\bdws kiy", 3, True),
-        R(r"\bcod\b", 3, True), R(r"\bcourier\b", 3, True),
+        R(r"\bcourier\b", 3, True),
         R(r"\bdelivery (thiyanawada|available|karanawada|karanwda)", 3, True),
         R(r"\bhow (long|many days)\b", 2, True),
         R(r"\border eka dawas\b", 3, True),
@@ -583,8 +610,62 @@ def classify(text: str) -> Classification:
             priority_score=0,
         )
 
+    # ---- AI-only risk guard ---------------------------------------------------
+    # Detects cues for the 4 sparse AI-only categories (Warranty/Service,
+    # Contact Request, Price Complaint, Suggestion) BEFORE rule scoring,
+    # so shared vocabulary (e.g. "price") doesn't leak into a rule category.
+    ai_only_guard = detect_ai_only_risk(norm)
+    if ai_only_guard is not None:
+        return Classification(
+            text=text,
+            language=lang,
+            primary_intent=None,
+            secondary_intent=None,
+            sentiment="Neutral",
+            confidence="none",
+            route="ai_only",
+            ai_assisted=True,
+            matched_keywords={},
+            scores={},
+            evidence_count=0,
+            route_reason=ai_only_guard.reason,
+            priority_score=0,
+        )
+
     # ---- Keyword scoring ----------------------------------------------------
     scores, matches = _score_categories(norm)
+
+    # ---- Order-confirmation context guard ------------------------------------
+    # An order/receipt word ("gaththa", "ඕඩර් කරා") used inside a sentence
+    # that also describes a problem should not be trusted as a rule-only
+    # Order/Purchase Confirmation. Route to AI instead of forcing a category.
+    confirmation_review = needs_confirmation_context_review(norm)
+
+    if confirmation_review and scores:
+        ranked_for_guard = sorted(
+            scores.items(), key=lambda kv: kv[1], reverse=True
+        )
+        guarded_primary = ranked_for_guard[0][0]
+
+        if (
+            guarded_primary == "Order/Purchase Confirmation"
+            or "Order/Purchase Confirmation" in scores
+        ):
+            return Classification(
+                text=text,
+                language=lang,
+                primary_intent=guarded_primary,
+                secondary_intent="Negative Feedback/Complaint",
+                sentiment="Negative",
+                confidence="medium",
+                route="rules_ai_verify",
+                ai_assisted=True,
+                matched_keywords=matches,
+                scores=scores,
+                evidence_count=EVIDENCE.get((guarded_primary, lang), 0),
+                route_reason=confirmation_review,
+                priority_score=PRIORITY_WEIGHTS.get(guarded_primary, 0),
+            )
 
     if not scores:
         return Classification(
@@ -615,7 +696,6 @@ def classify(text: str) -> Classification:
     # ---- Ambiguous: two categories tied or nearly tied -----------------------
     if len(ranked) > 1 and (primary_score - ranked[1][1]) < CLEAR_WINNER_MARGIN \
             and ranked[1][1] >= SCORE_THRESHOLD:
-        # keep the rule guess but require AI verification
         ev = EVIDENCE.get((primary, lang), 0)
         return Classification(
             text=text, language=lang, primary_intent=primary,

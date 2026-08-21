@@ -248,6 +248,24 @@ def get_comments_by_post(post_id: int):
     conn.close()
     return [dict(row) for row in rows]
 
+def get_comments_by_post_and_intent(post_id: int, intent: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM comments
+        WHERE post_id = ? AND intent = ?
+        ORDER BY
+            CASE status
+                WHEN 'unread'           THEN 1
+                WHEN 'read_not_replied' THEN 2
+                WHEN 'replied'          THEN 3
+            END,
+            created_at DESC
+    ''', (post_id, intent))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def get_summary_by_post(post_id: int):
     conn = get_connection()
     cursor = conn.cursor()
@@ -269,6 +287,33 @@ def get_summary_by_post(post_id: int):
         'language_counts':  language_counts,
         'status_counts':    status_counts
     }
+
+
+def get_activity_by_day(post_id: int, days: int = 7):
+    """Comment counts per day for the last N days, for the activity chart."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT DATE(created_at) as day, COUNT(*) as count
+        FROM comments
+        WHERE post_id = ?
+          AND created_at >= DATE('now', ?)
+        GROUP BY DATE(created_at)
+        ORDER BY day ASC
+    ''', (post_id, f'-{days} days'))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{'day': row['day'], 'count': row['count']} for row in rows]
+
+
+def get_facebook_comment_id(comment_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT facebook_comment_id FROM comments WHERE id = ?', (comment_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row['facebook_comment_id'] if row else None
+
 
 def update_comment_status(comment_id: int, status: str):
     allowed = ['unread', 'read_not_replied', 'replied']
@@ -298,6 +343,7 @@ def mark_post_comments_read(post_id: int):
     conn.commit()
     conn.close()
     return affected
+
 
 # ─── Order Functions ───────────────────────────────────────────
 

@@ -9,9 +9,12 @@ from app.database import (
     get_all_posts,
     get_post_by_id,
     get_comments_by_post,
+    get_comments_by_post_and_intent,
     get_summary_by_post,
+    get_activity_by_day,
     update_comment_status,
     mark_post_comments_read,
+    get_facebook_comment_id,
     get_connection
 )
 from app.graph.pipeline import run_pipeline
@@ -27,6 +30,11 @@ class StatusUpdate(BaseModel):
     status: str
 
 class ReplyInput(BaseModel):
+    message: str
+
+
+class BulkReplyInput(BaseModel):
+    comment_ids: list[int]
     message: str
 
 @router.get("/")
@@ -79,6 +87,16 @@ async def post_progress(post_id: int):
 def get_post(post_id: int):
     return get_post_by_id(post_id)
 
+@router.get("/{post_id}/activity")
+def post_activity(post_id: int):
+    return get_activity_by_day(post_id, days=7)
+
+@router.get("/{post_id}/comments/{intent}")
+def post_comments_by_intent(post_id: int, intent: str):
+    return get_comments_by_post_and_intent(post_id, intent)
+
+
+#----------------------------------------- post routes ------------------
 @router.post("/{post_id}/mark-read")
 def mark_read(post_id: int):
     affected = mark_post_comments_read(post_id)
@@ -124,3 +142,37 @@ async def reply_to_comment(comment_id: int, body: ReplyInput):
         update_comment_status(comment_id, 'replied')
 
     return result
+
+@router.post("/comments/bulk-reply")
+async def bulk_reply(body: BulkReplyInput):
+    results = []
+
+    for comment_id in body.comment_ids:
+        fb_comment_id = get_facebook_comment_id(comment_id)
+
+        if not fb_comment_id:
+            results.append({
+                "comment_id": comment_id,
+                "success": False,
+                "error": "Comment not found"
+            })
+            continue
+
+        result = await post_comment_reply(fb_comment_id, body.message)
+
+        if result.get('success'):
+            update_comment_status(comment_id, 'replied')
+
+        results.append({
+            "comment_id": comment_id,
+            "success": result.get('success', False),
+            "error": result.get('error')
+        })
+
+    success_count = sum(1 for r in results if r['success'])
+
+    return {
+        "results": results,
+        "success_count": success_count,
+        "fail_count": len(results) - success_count,
+    }
