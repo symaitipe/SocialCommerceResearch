@@ -16,6 +16,14 @@ reason a comment was routed to AI.
 Evidence matrix source: Corpus A (536 comments, 5 verticals, sequential
 collection) + Corpus B (52 targeted complaint/negative examples).
 Total: 588 annotated comments.
+
+Rule provenance: most keywords below were directly observed in the
+annotated corpus (source="corpus", the default). A small number of
+keywords are marked source="synthetic" — manually transliterated into
+Sinhala/Singlish script for unambiguous brand/service proper nouns
+(e.g. "Koko") where no corpus example of that script rendering was
+observed, but phonetic variation is minimal. These are flagged
+explicitly rather than silently mixed into corpus-derived evidence.
 """
 
 import re
@@ -184,8 +192,10 @@ def detect_language(text: str) -> str:
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. KEYWORD RULES
-#    Every keyword below was observed in the annotated corpus. Each rule is
-#    (pattern, weight). Weight reflects specificity:
+#    Every keyword below was observed in the annotated corpus, UNLESS
+#    explicitly marked source="synthetic" (see module docstring). Each
+#    rule is (pattern, weight, is_regex, source). Weight reflects
+#    specificity:
 #      3 = unambiguous, category-defining ("koko", "kiyada", "ganna epa")
 #      2 = strong signal, rare collisions
 #      1 = supporting signal, needs company or wins only unopposed
@@ -198,9 +208,13 @@ class Rule:
     pattern: str
     weight: int
     is_regex: bool = False
+    source: str = "corpus"   # "corpus" = observed in annotated data
+                              # "synthetic" = manually transliterated,
+                              #   used only for unambiguous brand/service
+                              #   names where phonetic variation is minimal
 
-def R(p, w, rx=False):
-    return Rule(p, w, rx)
+def R(p, w, rx=False, source="corpus"):
+    return Rule(p, w, rx, source)
 
 KEYWORD_RULES: dict[str, list[Rule]] = {
 
@@ -249,13 +263,22 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     ],
 
     # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
-    # "koko" is the single most specific token in the whole corpus
+    # "koko" is the single most specific token in the whole corpus.
+    # "cod" moved here from Delivery Inquiry — COD names a delivery
+    # *method* but its real signal is almost always a payment question.
     "Payment Method Inquiry": [
         R(r"\bkoko\b", 3, True), R(r"\binstallment", 3, True),
+        R(r"\bcod\b", 3, True),
         R(r"\bcard payment", 3, True), R(r"\bcard eken\b", 3, True),
         R(r"\bpayment (method|plan|available|accept)", 3, True),
-        R(r"\bbank transfer\b", 3, True), R(r"\bcash on delivery\b", 2, True),
+        R(r"\bbank transfer\b", 3, True),
+        R(r"\bcash on delivery\b", 3, True),
         R(r"\bpay(ment)? .{0,12}(available|accept|puluwanda|thiyanawada)", 2, True),
+        # Synthetic — Koko is a proper noun (payment service brand); no
+        # corpus example of this script rendering was observed (evidence
+        # table shows only 1 Sinhala example for this whole category).
+        R("කොකො", 3, source="synthetic"),
+        R(r"\bkokoo\b", 3, True, source="synthetic"),
     ],
 
     # ── PRICE INQUIRY ─────────────────────────────────────────────────────
@@ -274,7 +297,7 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     "Delivery Inquiry": [
         R(r"\bdelivery (charge|cost|fee|kiyada|kohomada)", 3, True),
         R(r"\bdawas kiy[ak]", 3, True), R(r"\bdws kiy", 3, True),
-        R(r"\bcod\b", 3, True), R(r"\bcourier\b", 3, True),
+        R(r"\bcourier\b", 3, True),
         R(r"\bdelivery (thiyanawada|available|karanawada|karanwda)", 3, True),
         R(r"\bhow (long|many days)\b", 2, True),
         R(r"\border eka dawas\b", 3, True),
