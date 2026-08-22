@@ -102,7 +102,7 @@ Detected language mode: {language}
 Comment: {text}
 
 Return JSON only — no explanation, no markdown, no extra text:
-{{"intent":"<one valid intent>","sentiment":"positive|negative|neutral"}}"""
+{{"intent":"<one valid intent>"}}"""
 
 
 def _clean_intent(value: str) -> str:
@@ -139,17 +139,12 @@ async def ai_fallback(text: str, language: str) -> dict:
         result = json.loads(raw)
 
         intent    = _clean_intent(result.get("intent", ""))
-        sentiment = str(result.get("sentiment", "neutral")).strip().lower()
-
+    
         if intent not in VALID_INTENTS:
             raise ValueError(f"Gemini returned unsupported intent: {intent!r}")
 
-        if sentiment not in {"positive", "negative", "neutral"}:
-            sentiment = "neutral"
-
         return {
             "intent":      intent,
-            "sentiment":   sentiment,
             "ai_assisted": True,
         }
 
@@ -157,7 +152,6 @@ async def ai_fallback(text: str, language: str) -> dict:
         print(f"⚠️  Gemini fallback failed: {str(e)}")
         return {
             "intent":      "noise_off_topic",
-            "sentiment":   "neutral",
             "ai_assisted": False,
             "error":       str(e),
         }

@@ -40,10 +40,8 @@ def init_db():
             text                 TEXT NOT NULL,
             language             TEXT,
             intent               TEXT,
-            sentiment            TEXT,
             confidence           TEXT DEFAULT 'none',
             route                TEXT DEFAULT 'ai_only',
-            priority_score       INTEGER DEFAULT 0,
             emoji_only           BOOLEAN DEFAULT 0,
             ai_assisted          BOOLEAN DEFAULT 0,
             is_order_request     BOOLEAN DEFAULT 0,
@@ -80,7 +78,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ─── Post Functions ────────────────────────────────────────────
+# â”€â”€â”€ Post Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def create_or_get_post(facebook_url: str, title: str = None) -> dict:
     conn = get_connection()
@@ -152,7 +150,7 @@ def update_post_fetched(post_id: int, total: int, new_count: int = 0):
     conn.commit()
     conn.close()
 
-# ─── Comment Functions ─────────────────────────────────────────
+# â”€â”€â”€ Comment Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def comment_exists(post_id: int, facebook_comment_id: str) -> bool:
     conn = get_connection()
@@ -187,11 +185,11 @@ def save_comment(result: dict, product_category: str = 'general',
         INSERT OR IGNORE INTO comments
         (post_id, facebook_comment_id, facebook_comment_url,
          commenter_name, commenter_fb_id, parent_comment_id,
-         text, language, intent, sentiment,
-         confidence, route, priority_score,
+         text, language, intent,
+         confidence, route,
          emoji_only, ai_assisted, status, product_category,
          created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unread', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unread', ?, ?, ?)
     ''', (
         post_id,
         facebook_comment_id,
@@ -202,10 +200,8 @@ def save_comment(result: dict, product_category: str = 'general',
         result['text'],
         result['language'],
         result['intent'],
-        result['sentiment'],
         result.get('confidence', 'none'),
         result.get('route', 'ai_only'),
-        result.get('priority_score', 0),
         result.get('emoji_only', False),
         result.get('ai_assisted', False),
         product_category,
@@ -241,7 +237,6 @@ def get_comments_by_post(post_id: int):
                 WHEN 'read_not_replied' THEN 2
                 WHEN 'replied'          THEN 3
             END,
-            priority_score DESC,
             created_at DESC
     ''', (post_id,))
     rows = cursor.fetchall()
@@ -271,8 +266,6 @@ def get_summary_by_post(post_id: int):
     cursor = conn.cursor()
     cursor.execute('SELECT intent, COUNT(*) as count FROM comments WHERE post_id = ? GROUP BY intent', (post_id,))
     intent_counts = {row['intent']: row['count'] for row in cursor.fetchall()}
-    cursor.execute('SELECT sentiment, COUNT(*) as count FROM comments WHERE post_id = ? GROUP BY sentiment', (post_id,))
-    sentiment_counts = {row['sentiment']: row['count'] for row in cursor.fetchall()}
     cursor.execute('SELECT language, COUNT(*) as count FROM comments WHERE post_id = ? GROUP BY language', (post_id,))
     language_counts = {row['language']: row['count'] for row in cursor.fetchall()}
     cursor.execute('SELECT status, COUNT(*) as count FROM comments WHERE post_id = ? GROUP BY status', (post_id,))
@@ -281,11 +274,10 @@ def get_summary_by_post(post_id: int):
     total = cursor.fetchone()['total']
     conn.close()
     return {
-        'total':            total,
-        'intent_counts':    intent_counts,
-        'sentiment_counts': sentiment_counts,
-        'language_counts':  language_counts,
-        'status_counts':    status_counts
+        'total':           total,
+        'intent_counts':   intent_counts,
+        'language_counts': language_counts,
+        'status_counts':   status_counts
     }
 
 
@@ -345,7 +337,7 @@ def mark_post_comments_read(post_id: int):
     return affected
 
 
-# ─── Order Functions ───────────────────────────────────────────
+# â”€â”€â”€ Order Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save_order(post_id: int, comment_id: int, order_request_comment_id: str,
                commenter_name: str, commenter_fb_id: str,
@@ -409,7 +401,7 @@ def update_order_status(order_id: int, status: str, notes: str = None):
     conn.commit()
     conn.close()
 
-# ─── Backward compatibility ────────────────────────────────────
+# â”€â”€â”€ Backward compatibility (kept working, not removed â€” see note below) â”€â”€
 
 def get_all_comments():
     conn = get_connection()
@@ -444,18 +436,15 @@ def get_summary_by_category(category: str):
     cursor = conn.cursor()
     cursor.execute('SELECT intent, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY intent', (category,))
     intent_counts = {row['intent']: row['count'] for row in cursor.fetchall()}
-    cursor.execute('SELECT sentiment, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY sentiment', (category,))
-    sentiment_counts = {row['sentiment']: row['count'] for row in cursor.fetchall()}
     cursor.execute('SELECT status, COUNT(*) as count FROM comments WHERE product_category = ? GROUP BY status', (category,))
     status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
     cursor.execute('SELECT COUNT(*) as total FROM comments WHERE product_category = ?', (category,))
     total = cursor.fetchone()['total']
     conn.close()
     return {
-        'total':            total,
-        'intent_counts':    intent_counts,
-        'sentiment_counts': sentiment_counts,
-        'status_counts':    status_counts
+        'total':         total,
+        'intent_counts': intent_counts,
+        'status_counts': status_counts
     }
 
 def get_comments_by_intent(intent: str):

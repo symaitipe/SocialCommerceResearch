@@ -13,4 +13,3 @@ class CommentResult(BaseModel):
     text: str
     language: str
     intent: str
-    sentiment: str

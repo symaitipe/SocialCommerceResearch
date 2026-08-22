@@ -24,6 +24,11 @@ Sinhala/Singlish script for unambiguous brand/service proper nouns
 (e.g. "Koko") where no corpus example of that script rendering was
 observed, but phonetic variation is minimal. These are flagged
 explicitly rather than silently mixed into corpus-derived evidence.
+
+Scope note: this engine classifies intent (category) only. Sentiment
+and priority scoring were removed — the seller-facing product only
+needs correct category routing, not a separate polarity or urgency
+score.
 """
 
 import re
@@ -421,13 +426,18 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. EMOJI ANALYSER  (supplementary signal — Liu et al. 2021 support)
+#    Still used to help decide INTENT for emoji-only comments; no longer
+#    produces a separate sentiment output.
 # ═══════════════════════════════════════════════════════════════════════════
 
 POSITIVE_EMOJI = set("❤️🥰😍💪👍🔥💯♥️💗🤍💫😎🩵😊🙂👌✨🎉🥳😁💖")
 NEGATIVE_EMOJI = set("😡🤮😭😒🚫💔😤😠🙄😞😢")
 
 def analyze_emoji(text: str) -> tuple[str, int, int]:
-    """Returns (polarity, positive_count, negative_count)."""
+    """Returns (polarity, positive_count, negative_count). Polarity here
+    only decides which intent bucket an emoji-only comment falls into
+    (Positive Feedback vs Negative Feedback/Complaint) — it is not
+    exposed as a separate sentiment field."""
     pos = sum(1 for ch in text if ch in POSITIVE_EMOJI)
     neg = sum(1 for ch in text if ch in NEGATIVE_EMOJI)
     if pos > neg and pos > 0:
@@ -440,14 +450,31 @@ def analyze_emoji(text: str) -> tuple[str, int, int]:
 # 6. NEGATION GUARD
 #    Positive keywords immediately followed/preceded by negators must not
 #    count as positive. Observed corpus patterns: "hoda na", "wada na",
-#    "quality ekak na", "hodai na".
+#    "quality ekak na", "hodai na". This decides INTENT (routes to
+#    Negative Feedback/Complaint), not a sentiment label.
 # ═══════════════════════════════════════════════════════════════════════════
+
+# NEGATION_PATTERNS = [
+#     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
+#     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
+#     re.compile(r"quality\s+ekak\s+na", re.I),
+#     re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
+#     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
+#     re.compile(r"don'?t\s+recommend", re.I),
+# ]
+
+_NEGATION_FILLER = r"(?:the|a|an|that|so|really|very|quite|too)\s+"
 
 NEGATION_PATTERNS = [
     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
     re.compile(r"quality\s+ekak\s+na", re.I),
-    re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
+    re.compile(
+        rf"\bnot\s+(?:{_NEGATION_FILLER})?"
+        r"(good|great|nice|comfortable|working|worth|satisfied|recommended?|"
+        r"best|excellent|amazing|perfect|quality)\b",
+        re.I
+    ),
     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
     re.compile(r"don'?t\s+recommend", re.I),
 ]
@@ -467,24 +494,7 @@ def has_negated_positive(text: str) -> bool:
     return any(p.search(text) for p in NEGATION_PATTERNS)
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 7. SENTIMENT (rule layer)
-# ═══════════════════════════════════════════════════════════════════════════
-
-INTENT_DEFAULT_SENTIMENT = {
-    "Positive Feedback": "Positive",
-    "Negative Feedback/Complaint": "Negative",
-    "Purchase Intent": "Neutral",
-    "Product Inquiry": "Neutral",
-    "Price Inquiry": "Neutral",
-    "Delivery Inquiry": "Neutral",
-    "Location/Availability": "Neutral",
-    "Payment Method Inquiry": "Neutral",
-    "Order/Purchase Confirmation": "Neutral",
-    "Noise/Off-topic": "Neutral",
-}
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 8. CLASSIFICATION RESULT
+# 7. CLASSIFICATION RESULT
 # ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass
@@ -493,7 +503,6 @@ class Classification:
     language: str
     primary_intent: Optional[str]
     secondary_intent: Optional[str]
-    sentiment: str
     confidence: str                # "high" | "medium" | "none"
     route: str                     # "rules_only" | "rules_ai_verify" | "ai_only"
     ai_assisted: bool
@@ -501,34 +510,15 @@ class Classification:
     scores: dict = field(default_factory=dict)
     evidence_count: int = 0
     route_reason: str = ""
-    priority_score: int = 0
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 9. THE CLASSIFIER
+# 8. THE CLASSIFIER
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Minimum keyword score for a category to be considered "matched"
 SCORE_THRESHOLD = 2
 # Margin by which the winner must beat the runner-up to be unambiguous
 CLEAR_WINNER_MARGIN = 2
-
-# Dashboard priority weights (higher = surfaced first)
-PRIORITY_WEIGHTS = {
-    "Negative Feedback/Complaint": 100,
-    "Purchase Intent": 90,
-    "Warranty/Service Inquiry": 80,
-    "Contact Request": 75,
-    "Price Complaint": 70,
-    "Payment Method Inquiry": 60,
-    "Price Inquiry": 55,
-    "Delivery Inquiry": 50,
-    "Product Inquiry": 45,
-    "Location/Availability": 40,
-    "Order/Purchase Confirmation": 35,
-    "Suggestion": 30,
-    "Positive Feedback": 10,
-    "Noise/Off-topic": 0,
-}
 
 def _score_categories(norm_text: str) -> tuple[dict, dict]:
     """Score every rule category against the text. Returns (scores, matches)."""
@@ -584,30 +574,27 @@ def classify(text: str) -> Classification:
             return Classification(
                 text=text, language=lang,
                 primary_intent="Positive Feedback", secondary_intent=None,
-                sentiment="Positive", confidence="high" if ev >= EVIDENCE_HIGH else "medium",
+                confidence="high" if ev >= EVIDENCE_HIGH else "medium",
                 route="rules_only" if ev >= EVIDENCE_HIGH else "rules_ai_verify",
                 ai_assisted=ev < EVIDENCE_HIGH,
                 matched_keywords={"Positive Feedback": [f"emoji x{pos_e}"]},
                 evidence_count=ev,
                 route_reason=f"Emoji-only positive ({pos_e} positive emoji); evidence={ev}",
-                priority_score=PRIORITY_WEIGHTS["Positive Feedback"],
             )
         if emoji_polarity == "Negative":
             return Classification(
                 text=text, language=lang,
                 primary_intent="Negative Feedback/Complaint", secondary_intent=None,
-                sentiment="Negative", confidence="medium",
+                confidence="medium",
                 route="rules_ai_verify", ai_assisted=True,
                 matched_keywords={"Negative Feedback/Complaint": [f"emoji x{neg_e}"]},
                 evidence_count=0,
                 route_reason="Emoji-only negative — no corpus evidence for this cell; AI verifies",
-                priority_score=PRIORITY_WEIGHTS["Negative Feedback/Complaint"],
             )
         return Classification(
             text=text, language=lang, primary_intent=None, secondary_intent=None,
-            sentiment="Neutral", confidence="none", route="ai_only",
+            confidence="none", route="ai_only",
             ai_assisted=True, route_reason="Emoji/non-text with no polarity signal",
-            priority_score=0,
         )
 
     # ---- AI-only risk guard ---------------------------------------------------
@@ -621,7 +608,6 @@ def classify(text: str) -> Classification:
             language=lang,
             primary_intent=None,
             secondary_intent=None,
-            sentiment="Neutral",
             confidence="none",
             route="ai_only",
             ai_assisted=True,
@@ -629,7 +615,6 @@ def classify(text: str) -> Classification:
             scores={},
             evidence_count=0,
             route_reason=ai_only_guard.reason,
-            priority_score=0,
         )
 
     # ---- Keyword scoring ----------------------------------------------------
@@ -656,7 +641,6 @@ def classify(text: str) -> Classification:
                 language=lang,
                 primary_intent=guarded_primary,
                 secondary_intent="Negative Feedback/Complaint",
-                sentiment="Negative",
                 confidence="medium",
                 route="rules_ai_verify",
                 ai_assisted=True,
@@ -664,16 +648,14 @@ def classify(text: str) -> Classification:
                 scores=scores,
                 evidence_count=EVIDENCE.get((guarded_primary, lang), 0),
                 route_reason=confirmation_review,
-                priority_score=PRIORITY_WEIGHTS.get(guarded_primary, 0),
             )
 
     if not scores:
         return Classification(
             text=text, language=lang, primary_intent=None, secondary_intent=None,
-            sentiment="Neutral", confidence="none", route="ai_only",
+            confidence="none", route="ai_only",
             ai_assisted=True, scores={},
             route_reason="No keyword rule matched — outside rule vocabulary coverage",
-            priority_score=0,
         )
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
@@ -686,11 +668,9 @@ def classify(text: str) -> Classification:
     if primary_score < SCORE_THRESHOLD:
         return Classification(
             text=text, language=lang, primary_intent=primary, secondary_intent=None,
-            sentiment=INTENT_DEFAULT_SENTIMENT.get(primary, "Neutral"),
             confidence="none", route="ai_only", ai_assisted=True,
             matched_keywords=matches, scores=scores,
             route_reason=f"Keyword score {primary_score} below threshold {SCORE_THRESHOLD}",
-            priority_score=PRIORITY_WEIGHTS.get(primary, 0),
         )
 
     # ---- Ambiguous: two categories tied or nearly tied -----------------------
@@ -700,12 +680,10 @@ def classify(text: str) -> Classification:
         return Classification(
             text=text, language=lang, primary_intent=primary,
             secondary_intent=ranked[1][0],
-            sentiment=INTENT_DEFAULT_SENTIMENT.get(primary, "Neutral"),
             confidence="medium", route="rules_ai_verify", ai_assisted=True,
             matched_keywords=matches, scores=scores, evidence_count=ev,
             route_reason=(f"Ambiguous: '{primary}' ({primary_score}) vs "
                           f"'{ranked[1][0]}' ({ranked[1][1]}) within margin — AI verifies"),
-            priority_score=PRIORITY_WEIGHTS.get(primary, 0),
         )
 
     # ---- EVIDENCE-BASED CONFIDENCE (the core of the hybrid design) ----------
@@ -724,18 +702,10 @@ def classify(text: str) -> Classification:
         reason = (f"Only {evidence} corpus examples for ({primary}, {lang}) — "
                   f"insufficient evidence to trust a rule in this language; AI classifies")
 
-    # Sentiment: rule default, emoji as tiebreaker/override for feedback
-    sentiment = INTENT_DEFAULT_SENTIMENT.get(primary, "Neutral")
-    if primary in ("Positive Feedback", "Negative Feedback/Complaint"):
-        if emoji_polarity != "Neutral":
-            sentiment = emoji_polarity if primary != "Negative Feedback/Complaint" \
-                        or emoji_polarity == "Negative" else sentiment
-
     return Classification(
         text=text, language=lang, primary_intent=primary,
         secondary_intent=secondary,
-        sentiment=sentiment, confidence=conf, route=route, ai_assisted=ai,
+        confidence=conf, route=route, ai_assisted=ai,
         matched_keywords=matches, scores=scores, evidence_count=evidence,
         route_reason=reason,
-        priority_score=PRIORITY_WEIGHTS.get(primary, 0),
     )
