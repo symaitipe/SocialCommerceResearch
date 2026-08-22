@@ -454,11 +454,27 @@ def analyze_emoji(text: str) -> tuple[str, int, int]:
 #    Negative Feedback/Complaint), not a sentiment label.
 # ═══════════════════════════════════════════════════════════════════════════
 
+# NEGATION_PATTERNS = [
+#     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
+#     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
+#     re.compile(r"quality\s+ekak\s+na", re.I),
+#     re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
+#     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
+#     re.compile(r"don'?t\s+recommend", re.I),
+# ]
+
+_NEGATION_FILLER = r"(?:the|a|an|that|so|really|very|quite|too)\s+"
+
 NEGATION_PATTERNS = [
     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
     re.compile(r"quality\s+ekak\s+na", re.I),
-    re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
+    re.compile(
+        rf"\bnot\s+(?:{_NEGATION_FILLER})?"
+        r"(good|great|nice|comfortable|working|worth|satisfied|recommended?|"
+        r"best|excellent|amazing|perfect|quality)\b",
+        re.I
+    ),
     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
     re.compile(r"don'?t\s+recommend", re.I),
 ]

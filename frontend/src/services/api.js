@@ -20,11 +20,6 @@ export const getPost = async (postId) => {
   return response.data;
 };
 
-export const getPostComments = async (postId) => {
-  const response = await axios.get(`${API_BASE}/posts/${postId}/comments`);
-  return response.data;
-};
-
 export const getPostSummary = async (postId) => {
   const response = await axios.get(`${API_BASE}/posts/${postId}/summary`);
   return response.data;
