@@ -252,8 +252,14 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         # wrong item / missing / damaged
         R(r"\bwrong colou?r\b", 3, True), R(r"\bmissing\b", 2, True),
         R(r"\bdamage", 2, True), R(r"\bbroken\b", 3, True),
-        R("වෙන ekak", 2), R("wena ekak", 2), R("කලූ", 1), R("කලුනේ අවේ", 3),
+        R("වෙන ekak", 2), R("wena ekak", 2),
         R(r"\billapu pata neme\b", 3, True),
+        R(r"\billapu eka (nemei|neme)\b", 3, True),
+        R(r"\billapu colou?r eka (nemei|neme)\b", 3),
+        R(r"\billapu size eka (nemei|neme)\b", 3, True),
+        R("ඉල්ලපු එක නෙමෙයි", 3), R("ඉල්ලපු එක නෙමේ", 3),
+        R("ඉල්ලපු පාට එක නෙමෙයි", 3), R("ඉල්ලපු පාට එක නෙමේ", 3),
+        R("ඉල්ලපු සයිස් එක නෙමෙයි", 3), R("ඉල්ලපු සයිස් එක නෙමේ", 3),
         # order not arrived / seller not responding (complaint form)
         R(r"\border? (eka )?thama n[ha]", 3, True),
         R(r"\banswer (karanne|krnne) na", 3, True),
@@ -268,9 +274,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     ],
 
     # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
-    # "koko" is the single most specific token in the whole corpus.
-    # "cod" moved here from Delivery Inquiry — COD names a delivery
-    # *method* but its real signal is almost always a payment question.
     "Payment Method Inquiry": [
         R(r"\bkoko\b", 3, True), R(r"\binstallment", 3, True),
         R(r"\bcod\b", 3, True),
@@ -279,9 +282,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bbank transfer\b", 3, True),
         R(r"\bcash on delivery\b", 3, True),
         R(r"\bpay(ment)? .{0,12}(available|accept|puluwanda|thiyanawada)", 2, True),
-        # Synthetic — Koko is a proper noun (payment service brand); no
-        # corpus example of this script rendering was observed (evidence
-        # table shows only 1 Sinhala example for this whole category).
         R("කොකො", 3, source="synthetic"),
         R(r"\bkokoo\b", 3, True, source="synthetic"),
     ],
@@ -369,25 +369,21 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bthiyeda\b", 3, True), R(r"\bnedda\b", 3, True),
         R(r"\bndda\b", 3, True), R(r"\bnadda\b", 3, True),
         R("තියෙනවද", 3), R("තියෙනවාද", 3), R("තිබේද", 3), R("තියෙද", 3),
-        R("විතරද", 2), R(r"\bwitharada\b", 3, True),
+        R("විතරද", 2), R(r"\bwitharada\b", 3, True),  R(r"\bavailable da\b", 3, True),
         # can-I-get questions
         R(r"\bganna puluwanda\b", 2, True), R(r"\bganna puluwnda\b", 2, True),
         R(r"\bganna barida\b", 2, True), R(r"\bganna berida\b", 2, True),
         R(r"\bcan (i|we) (get|purchase|buy)\b", 2, True),
         R("ගන්න පුළුවන්ද", 2), R("ගන්න බැරිද", 2),
-        # product attribute questions
-        R(r"\bunisex\b", 2, True), R(r"\bladies (ewa|perform|perfume)\b", 2, True),
+        # genuine questions (interrogative structure present: "how to",
+        # "kohomada"/how, "monawada"/what, "-da/ද" particle)
         R(r"\bmonawada\b", 2, True), R("මොනවද", 2), R("මොනවාද", 2),
-        R(r"\blongevity\b", 3, True), R(r"\bsize\b", 1, True),
-        R(r"\bcolou?rs?\b", 1, True), R(r"\bhow to (use|get|buy|order)\b", 2, True),
+        R(r"\bhow to use\b", 2, True),
         R(r"\bis it ok to use\b", 3, True), R(r"\bsafe (for|to)\b", 2, True),
-        R("පාවිච්චි", 2), R(r"\bpawichchi\b", 2, True),
-        R(r"\bkohomada (ganne|use|order)\b", 2, True),
-        R(r"\b\d+\s?ml\b", 1, True),
-        R(r"\bfull bottle\b", 1, True), R(r"\bdecant\b", 2, True),
-        R(r"\bavailable\b", 1, True),
+        R(r"\bkohomada use\b", 2, True),
         R(r"\bkiyannako\b", 2, True),  # "recommend me one" requests
         R(r"\bhodama .{0,12}(ekak|ekk|mkdd|mokadda)\b", 2, True),
+        
     ],
 
     # ── POSITIVE FEEDBACK ─────────────────────────────────────────────────
@@ -406,6 +402,8 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bmaretama\b", 3, True), R(r"\bhodai\b", 2, True),
         R(r"\bhondai\b", 2, True), R(r"\bhodata\b", 2, True),
         R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
+        R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
+        R(r"(^|\s)හොද(\s|$|,|\.|!|\?)", 2, True),
         R("සුපිරි", 3), R("නියමයි", 3), R("පට්ට", 3), R("මරු", 2),
         R("ආදරෙයි", 3), R("ආදරේ", 2),
         R(r"\bcomfortable\b", 2, True), R(r"\bquality\b", 1, True),
@@ -418,7 +416,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     # ── NOISE / OFF-TOPIC ─────────────────────────────────────────────────
     "Noise/Off-topic": [
         R(r"\bfollow (kar|back|me)", 3, True), R("මාවත් follow", 3),
-        R(r"\blike ekakuth\b", 3, True),
         R(r"^\s*$", 3, True),  # empty
         R(r"^nan$", 3, True),  # null artefacts
     ],
