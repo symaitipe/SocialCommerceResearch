@@ -7,28 +7,7 @@ Architecture:
   Layer 1 (this module): rule-based classification with evidence-based
            per-language confidence derived from the annotated corpus.
   Layer 2 (AI fallback): comments this engine cannot classify with
-           sufficient evidence-backed confidence are routed to the LLM.
-
-Every decision is explainable: the output includes which keywords fired,
-the evidence count behind the (category, language) cell, and the exact
-reason a comment was routed to AI.
-
-Evidence matrix source: Corpus A (536 comments, 5 verticals, sequential
-collection) + Corpus B (52 targeted complaint/negative examples).
-Total: 588 annotated comments.
-
-Rule provenance: most keywords below were directly observed in the
-annotated corpus (source="corpus", the default). A small number of
-keywords are marked source="synthetic" — manually transliterated into
-Sinhala/Singlish script for unambiguous brand/service proper nouns
-(e.g. "Koko") where no corpus example of that script rendering was
-observed, but phonetic variation is minimal. These are flagged
-explicitly rather than silently mixed into corpus-derived evidence.
-
-Scope note: this engine classifies intent (category) only. Sentiment
-and priority scoring were removed — the seller-facing product only
-needs correct category routing, not a separate polarity or urgency
-score.
+           sufficient evidence-backed confidence are routed to the LLM..
 """
 
 import re
@@ -37,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from app.rules.routing_guards import (
     detect_ai_only_risk,
-    needs_confirmation_context_review,
+    contains_mobile_number,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -77,11 +56,6 @@ EVIDENCE: dict[tuple[str, str], int] = {
     ("Negative Feedback/Complaint", "singlish"): 14,
     ("Negative Feedback/Complaint", "sinhala"): 12,
     ("Negative Feedback/Complaint", "mixed"): 8,
-    # Order/Purchase Confirmation
-    ("Order/Purchase Confirmation", "english"): 9,
-    ("Order/Purchase Confirmation", "singlish"): 7,
-    ("Order/Purchase Confirmation", "sinhala"): 2,
-    ("Order/Purchase Confirmation", "mixed"): 3,
     # Location/Availability
     ("Location/Availability", "english"): 9,
     ("Location/Availability", "singlish"): 7,
@@ -117,9 +91,16 @@ AI_ONLY_CATEGORIES = frozenset({
 RULE_CATEGORIES = [
     "Purchase Intent", "Product Inquiry", "Price Inquiry", "Delivery Inquiry",
     "Location/Availability", "Payment Method Inquiry",
-    "Order/Purchase Confirmation", "Positive Feedback",
-    "Negative Feedback/Complaint", "Noise/Off-topic",
+    "Positive Feedback", "Negative Feedback/Complaint", "Noise/Off-topic",
 ]
+
+# Order/Purchase Confirmation is not finalized by keyword rules. A detected
+# mobile number routes the complete comment to Gemini, which checks whether a
+# customer/recipient name + mobile number + delivery address are present
+# together in an order-submission context.
+CONTEXT_AI_CATEGORIES = frozenset({
+    "Order/Purchase Confirmation",
+})
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. TEXT NORMALISATION
@@ -224,53 +205,137 @@ def R(p, w, rx=False, source="corpus"):
 KEYWORD_RULES: dict[str, list[Rule]] = {
 
     # ── NEGATIVE FEEDBACK / COMPLAINT ─────────────────────────────────────
-    # Checked FIRST because negation patterns override positive/intent words
-    # ("ganna epa" must beat "ganna"; "wada na" must beat "wada niyamai")
     "Negative Feedback/Complaint": [
-        # don't-buy warnings (Sinhala + Singlish + English)
-        R(r"\bganna? epa\b", 3, True), R("ගන්න එපා", 3), R("ගන්නෙපා", 3),
-        R(r"\bgandepa\b", 3, True), R(r"\bdon'?t buy\b", 3, True),
-        R(r"\bdonot buy\b", 3, True), R(r"\bdont take\b", 3, True),
-        R("කවුරුවත් ගන්න", 3), R("කිසිම කෙනෙක් ගන්න", 3),
-        # not working / broken
-        R(r"\bnot work", 3, True), R(r"\bwada n[aeh]", 3, True),
-        R(r"\bvada n[aeh]", 3, True), R(r"\bwadak na", 3, True),
-        R("වැඩ නෑ", 3), R("වැඩ කරන්නෙ නෑ", 3), R("වැඩ කරන්නේ නැ", 3),
-        R(r"\bkaduna\b", 3, True), R(r"\bnot charging\b", 3, True),
-        R(r"\bdoesn'?t work\b", 3, True), R(r"\bstopped working\b", 3, True),
-        # waste / worst / fake / cheating
-        R(r"\bwaste\b", 3, True), R(r"\bworst\b", 3, True),
-        R(r"\bfake\b", 3, True), R(r"\bcheat", 3, True), R(r"\bfraud", 3, True),
-        R(r"\bscam", 3, True), R("සවුත්තු", 3), R(r"\bsavuth", 3, True),
-        R(r"\bsawuth", 3, True), R("බොරු", 3), R("රවට්ට", 3),
-        # disappointment / quality complaints
-        R(r"\bdisappoint", 3, True), R(r"\bnot satisfied\b", 3, True),
-        R(r"\bpoor quality\b", 3, True), R(r"\bnot good\b", 2, True),
-        R(r"\bnot comfortable\b", 2, True), R(r"\bbad product", 3, True),
-        R(r"\bnot quality\b", 2, True), R("පාඩුයි", 3),
-        R("හිතුව තරම් කොලිටි නෑ", 3), R("කොලිටි නෑ", 3),
-        # wrong item / missing / damaged
-        R(r"\bwrong colou?r\b", 3, True), R(r"\bmissing\b", 2, True),
-        R(r"\bdamage", 2, True), R(r"\bbroken\b", 3, True),
-        R("වෙන ekak", 2), R("wena ekak", 2),
-        R(r"\billapu pata neme\b", 3, True),
-        R(r"\billapu eka (nemei|neme)\b", 3, True),
-        R(r"\billapu colou?r eka (nemei|neme)\b", 3),
-        R(r"\billapu size eka (nemei|neme)\b", 3, True),
-        R("ඉල්ලපු එක නෙමෙයි", 3), R("ඉල්ලපු එක නෙමේ", 3),
-        R("ඉල්ලපු පාට එක නෙමෙයි", 3), R("ඉල්ලපු පාට එක නෙමේ", 3),
-        R("ඉල්ලපු සයිස් එක නෙමෙයි", 3), R("ඉල්ලපු සයිස් එක නෙමේ", 3),
-        # order not arrived / seller not responding (complaint form)
+
+        # ── Don't-buy warnings ─────────────────────────────────────────────
+        R(r"\bganna? epa\b", 3, True),
+        R("ගන්න එපා", 3),
+        R("ගන්නෙපා", 3),
+        R(r"\bgandepa\b", 3, True),
+        R(r"\bdon'?t buy\b", 3, True),
+        R(r"\bdonot buy\b", 3, True),
+        R(r"\bdont take\b", 3, True),
+        R("කවුරුවත් ගන්න", 3),
+        R("කිසිම කෙනෙක් ගන්න", 3),
+
+        # ── Not working / broken ────────────────────────────────────────────
+        R(r"\bnot work", 3, True),
+        R(r"\bwada n[aeh]", 3, True),
+        R(r"\bvada n[aeh]", 3, True),
+        R(r"\bwadak na", 3, True),
+        R("වැඩ නෑ", 3),
+        R("වැඩ කරන්නෙ නෑ", 3),
+        R("වැඩ කරන්නේ නැ", 3),
+        R(r"\bkaduna\b", 3, True),
+        R(r"\bnot charging\b", 3, True),
+        R(r"\bdoesn'?t work\b", 3, True),
+        R(r"\bstopped working\b", 3, True),
+
+        # ── Waste / worst / fake / cheating ─────────────────────────────────
+        R(r"\bwaste\b", 3, True),
+        R(r"\bworst\b", 3, True),
+        R(r"\bfake\b", 3, True),
+        R(r"\bcheat", 3, True),
+        R(r"\bfraud", 3, True),
+        R(r"\bscam", 3, True),
+        R("සවුත්තු", 3),
+        R(r"\bsavuth", 3, True),
+        R(r"\bsawuth", 3, True),
+        R("බොරු", 3),
+        R("රවට්ට", 3),
+
+        # ── Disappointment / quality complaints ─────────────────────────────
+        R(r"\bdisappoint", 3, True),
+        R(r"\bnot satisfied\b", 3, True),
+        R(r"\bpoor quality\b", 3, True),
+        R(r"\bnot good\b", 2, True),
+        R(r"\bnot comfortable\b", 2, True),
+        R(r"\bbad product\b", 3, True),
+        R(r"\bnot quality\b", 2, True),
+        R("පාඩුයි", 3),
+        R("හිතුව තරම් කොලිටි නෑ", 3),
+        R("කොලිටි නෑ", 3),
+
+        # ── Wrong item / missing / damaged ──────────────────────────────────
+        R(r"\bwrong (item|product|colou?r|size|model)\b", 3, True),
+        R(r"\bmissing\b", 2, True),
+        R(r"\bdamage", 2, True),
+        R(r"\bbroken\b", 3, True),
+
+        # "different item"
+        R(r"\b(wena|vena) ekak\b", 3, True),
+        R("වෙන එකක්", 3),
+
+        # General Singlish:
+        # "illapu ... nemei/neme"
+        # Handles:
+        # illapu eka nemei
+        # illapu pata eka nemei
+        # illapu size eka nemei
+        # illapu model eka nemei
+        R(
+            r"\billapu\b.{0,30}\b(nemei|neme)\b",
+            3,
+            True
+        ),
+
+        # General Sinhala:
+        # "ඉල්ලපු ... නෙමෙයි/නෙමේ"
+        R(
+            r"ඉල්ලපු.{0,30}(නෙමෙයි|නෙමේ)",
+            3,
+            True
+        ),
+
+        # Ordered/bought something, BUT a different/wrong item was involved.
+        # Examples:
+        # "order kra eth wena ekak awa"
+        # "gaththa eth different item ekak"
+        R(
+            r"\b(order\s+(kara|kala|kra|kla)|gatta|gaththa)\b"
+            r".{0,35}\b(eth|but)\b"
+            r".{0,45}\b(wena|vena|different|wrong)\b",
+            3,
+            True
+        ),
+
+        # Ordered/bought something, BUT what arrived is not what was expected.
+        #
+        # Example:
+        # "Ane mn order kra eth ewiyh tynne rosehip oil ek"
+        #
+        # Captures:
+        # order kra + eth + ewiyh + tynne
+        R(
+            r"\b(order\s+(kara|kala|kra|kla)|gatta|gaththa)\b"
+            r".{0,35}\b(eth|but)\b"
+            r".{0,45}\b(awilla|avilla|ewila|ewilla|avila|awe|awa|ewiyh)\b"
+            r".{0,25}\b(thiyenne|tiyenne|tyenne|tynne)\b",
+            3,
+            True
+        ),
+
+        # ── Order not arrived / seller not responding ───────────────────────
         R(r"\border? (eka )?thama n[ha]", 3, True),
         R(r"\banswer (karanne|krnne) na", 3, True),
-        R(r"\bnot answering\b", 3, True), R(r"\breply karanne na", 3, True),
+        R(r"\bnot answering\b", 3, True),
+        R(r"\breply karanne na", 3, True),
         R(r"\breact karanne n[ae]", 3, True),
-        R("එකයි ඇවිත්", 2), R(r"\bstill waiting\b", 3, True),
+        R("එකයි ඇවිත්", 2),
+        R(r"\bstill waiting\b", 3, True),
         R(r"\bnever received\b", 3, True),
-        R(r"\bahenne? na", 2, True), R("ඇහෙන්නෙ නෑ", 3), R("ඇහෙන්නේ", 1),
+
+        # ── Other product problems ───────────────────────────────────────────
+        R(r"\bahenne? na", 2, True),
+        R("ඇහෙන්නෙ නෑ", 3),
+        R("ඇහෙන්නේ", 1),
         R(r"\b(one|1) side not working\b", 3, True),
-        R(r"\bahenawa adui\b", 3, True), R("බැලන්ස් නෑ", 3),
-        R(r"\bepa\b", 1, True), R("එපා", 1),
+        R(r"\bahenawa adui\b", 3, True),
+        R("බැලන්ස් නෑ", 3),
+
+        # Supporting negative signals
+        R(r"\bepa\b", 1, True),
+        R("එපා", 1),
     ],
 
     # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
@@ -326,21 +391,8 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R("ශොප්", 2), R("ශෝරූම්", 3),
     ],
 
-    # ── ORDER / PURCHASE CONFIRMATION ─────────────────────────────────────
-    "Order/Purchase Confirmation": [
-        R(r"\border (kara|kala|kla)\b", 3, True),
-        R(r"\bo[rd]der ek[ka]+ (damma|demma|dunna)\b", 3, True),
-        R(r"\boder ekk damma\b", 3, True),
-        R("ඕඩර් කරා", 3), R("ඕඩර් කලා", 3), R("ඔඩර් කරා", 3),
-        R(r"\bgot mine\b", 3, True), R(r"\bi got my\b", 3, True),
-        R(r"\breceived (my|the|today)\b", 3, True),
-        R(r"\bhambun[ea]\b", 3, True), R(r"\bhambuna\b", 3, True),
-        R(r"\bgatta\b", 2, True), R(r"\bgaththa\b", 2, True),
-        R(r"\bmath gatta\b", 3, True),
-        R("අද අවා", 3), R("ඇවිත්", 1), R(r"\baragena\b", 2, True),
-        R(r"\bordered\b", 2, True), R(r"\border (kalaa?|krla)\b", 2, True),
-        R(r"\bmamath .{0,6}gatha\b", 3, True),
-    ],
+    # Order/Purchase Confirmation intentionally has no keyword rule block.
+    # A mobile-number candidate is routed to Gemini for contextual verification.
 
     # ── PURCHASE INTENT ───────────────────────────────────────────────────
     "Purchase Intent": [
@@ -594,6 +646,30 @@ def classify(text: str) -> Classification:
             ai_assisted=True, route_reason="Emoji/non-text with no polarity signal",
         )
 
+    # ---- Order/Purchase Confirmation candidate guard -------------------------
+    # A mobile number is only a routing signal. It is NOT enough by itself to
+    # classify Order/Purchase Confirmation. Gemini must inspect the full comment
+    # and verify that a customer/recipient name, mobile number, and delivery
+    # address are provided together in an order-submission context.
+    if contains_mobile_number(norm):
+        return Classification(
+            text=text,
+            language=lang,
+            primary_intent=None,
+            secondary_intent=None,
+            confidence="none",
+            route="ai_only",
+            ai_assisted=True,
+            matched_keywords={"Order/Purchase Confirmation": ["<mobile number detected>"]},
+            scores={},
+            evidence_count=0,
+            route_reason=(
+                "Mobile number detected; AI must determine whether the complete "
+                "comment contains name + mobile number + delivery address as an "
+                "Order/Purchase Confirmation."
+            ),
+        )
+
     # ---- AI-only risk guard ---------------------------------------------------
     # Detects cues for the 4 sparse AI-only categories (Warranty/Service,
     # Contact Request, Price Complaint, Suggestion) BEFORE rule scoring,
@@ -616,36 +692,6 @@ def classify(text: str) -> Classification:
 
     # ---- Keyword scoring ----------------------------------------------------
     scores, matches = _score_categories(norm)
-
-    # ---- Order-confirmation context guard ------------------------------------
-    # An order/receipt word ("gaththa", "ඕඩර් කරා") used inside a sentence
-    # that also describes a problem should not be trusted as a rule-only
-    # Order/Purchase Confirmation. Route to AI instead of forcing a category.
-    confirmation_review = needs_confirmation_context_review(norm)
-
-    if confirmation_review and scores:
-        ranked_for_guard = sorted(
-            scores.items(), key=lambda kv: kv[1], reverse=True
-        )
-        guarded_primary = ranked_for_guard[0][0]
-
-        if (
-            guarded_primary == "Order/Purchase Confirmation"
-            or "Order/Purchase Confirmation" in scores
-        ):
-            return Classification(
-                text=text,
-                language=lang,
-                primary_intent=guarded_primary,
-                secondary_intent="Negative Feedback/Complaint",
-                confidence="medium",
-                route="rules_ai_verify",
-                ai_assisted=True,
-                matched_keywords=matches,
-                scores=scores,
-                evidence_count=EVIDENCE.get((guarded_primary, lang), 0),
-                route_reason=confirmation_review,
-            )
 
     if not scores:
         return Classification(
