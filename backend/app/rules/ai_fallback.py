@@ -84,8 +84,8 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
     could be improved.
 
 13. contact_request
-    Customer asks how to contact the seller, asks for a phone/WhatsApp/contact
-    method, or reports that a seller contact channel is not working.
+    Asks for phone/WhatsApp/contact info, reports a broken contact channel,
+    or sends a bare greeting ("hi"/"hello") with no other content.
 
 14. noise_off_topic
     Comment has no meaningful product/customer intent for this taxonomy.
@@ -97,6 +97,7 @@ Important distinctions:
 - "gaththa eka wada na" -> negative_feedback_complaint
 - "WhatsApp number wada na" -> contact_request
 - "hodaida?" is a quality question -> product_inquiry, not positive_feedback
+- bare greeting ("hi"/"hello") -> contact_request
 
 Detected language mode: {language}
 Comment: {text}
