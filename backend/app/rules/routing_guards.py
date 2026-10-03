@@ -3,14 +3,14 @@ Routing guards for the SocialSell hybrid classifier.
 
 Purpose
 -------
-These guards DO NOT classify the four AI-only categories themselves.
-They only detect situations where a rule-only decision is unsafe and
-force the comment to the AI layer.
+These guards do not directly classify the four sparse AI-only categories.
+They detect situations where a rule-only decision is unsafe and force the
+comment to the AI layer.
 
-This preserves the research design:
-- 10 categories can be handled by rules when evidence/confidence is enough.
-- 4 sparse categories remain AI-only.
-- Shared vocabulary should not let AI-only comments leak into rule categories.
+Order/Purchase Confirmation is handled specially: the presence of a mobile
+number is treated only as a routing signal. Gemini must inspect the complete
+comment and decide whether it actually contains a customer/recipient name,
+mobile number, and delivery address together as an order submission.
 """
 
 import re
@@ -74,34 +74,42 @@ SUGGESTION_CUES = (
     r"\bit\s+would\s+be\s+better\b", r"\bwould\s+be\s+better\b",
 )
 
+
 # ---------------------------------------------------------------------------
-# ORDER-CONFIRMATION CONTEXT GUARD
+# ORDER/PURCHASE CONFIRMATION ROUTING SIGNAL
 # ---------------------------------------------------------------------------
 
-CONFIRMATION_CUES = (
-    r"\bgatta\b", r"\bgaththa\b", r"\bhambuna\b", r"\bhambune\b",
-    r"\breceived\b", r"\bgot\s+(mine|my|it|the)\b", r"\bordered\b",
-    r"ඕඩර්\s*(කරා|කලා)", r"ඔඩර්\s*(කරා|කලා)",
-    r"ලැබුණ", r"හම්බුන",
+# Sri Lankan mobile formats such as:
+#   0771234567
+#   077 123 4567
+#   077-123-4567
+#   +94771234567
+#   +94 77 123 4567
+#   0094771234567
+MOBILE_NUMBER_PATTERN = re.compile(
+    r"(?<!\d)(?:\+94|0094|0)[\s-]*7\d(?:[\s-]*\d){7}(?!\d)"
 )
 
-NEGATIVE_CONTEXT_CUES = (
-    r"\bnot\s+(work|working|good|quality|satisfied)\b",
-    r"\bdoesn'?t\s+work\b", r"\bstopped\s+working\b",
-    r"\b(wada|vada)\s+n[aeh]+\b",
-    r"\bkaduna\b", r"\bbroken\b",
-    r"\bpoor\b", r"\bbad\b", r"\bworst\b", r"\bwaste\b",
-    r"වැඩ\s*(නෑ|නැ)", r"නරක", r"කැඩුන", r"කැඩුණ",
-    r"හොඳ\s*(නෑ|නැ)", r"හොද\s*(නෑ|නැ)",
-)
+
+def contains_mobile_number(text: str) -> bool:
+    """
+    Return True when the comment contains a Sri Lankan-style mobile number.
+
+    The mobile number is NOT enough to classify the comment as
+    Order/Purchase Confirmation. Its presence only forces AI review so Gemini
+    can inspect whether name + mobile number + delivery address are present
+    together in an order-submission context.
+    """
+    t = _norm(text)
+    return bool(MOBILE_NUMBER_PATTERN.search(t))
 
 
 def detect_ai_only_risk(text: str) -> Optional[RoutingGuard]:
     """
-    Detect strong cues for one of the four AI-only category groups.
+    Detect strong cues for one of the four sparse AI-only category groups.
 
-    Important: this function does NOT assign the final intent.  It only says
-    that a rule-only decision is unsafe.  The LLM must still classify using
+    Important: this function does not assign the final intent. It only says
+    that a rule-only decision is unsafe. The LLM must still classify using
     the complete 14-category taxonomy.
     """
     t = _norm(text)
@@ -139,27 +147,6 @@ def detect_ai_only_risk(text: str) -> Optional[RoutingGuard]:
         return RoutingGuard(
             reason="Explicit suggestion wording detected; Suggestion is AI-only",
             likely_group="suggestion",
-        )
-
-    return None
-
-
-def needs_confirmation_context_review(text: str) -> Optional[str]:
-    """
-    Detect an order/receipt word used inside a negative sentence.
-
-    Example:
-        "gaththa eka wada na"
-
-    A token such as "gaththa" should not make Order/Purchase Confirmation the
-    final rule result when the surrounding sentence clearly describes a problem.
-    """
-    t = _norm(text)
-
-    if _has_any(t, CONFIRMATION_CUES) and _has_any(t, NEGATIVE_CONTEXT_CUES):
-        return (
-            "Order/receipt wording appears together with negative context; "
-            "require AI verification"
         )
 
     return None

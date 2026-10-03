@@ -1,98 +1,53 @@
-"""
-Hybrid Comment Classification Rule Engine
-==========================================
-Sri Lankan Facebook Social Commerce — English / Sinhala / Singlish / Mixed
+"""SocialSell finalversion classifier with reweighted rules and contextual question handling.
 
-Architecture:
-  Layer 1 (this module): rule-based classification with evidence-based
-           per-language confidence derived from the annotated corpus.
-  Layer 2 (AI fallback): comments this engine cannot classify with
-           sufficient evidence-backed confidence are routed to the LLM.
-
-Every decision is explainable: the output includes which keywords fired,
-the evidence count behind the (category, language) cell, and the exact
-reason a comment was routed to AI.
-
-Evidence matrix source: Corpus A (536 comments, 5 verticals, sequential
-collection) + Corpus B (52 targeted complaint/negative examples).
-Total: 588 annotated comments.
-
-Rule provenance: most keywords below were directly observed in the
-annotated corpus (source="corpus", the default). A small number of
-keywords are marked source="synthetic" — manually transliterated into
-Sinhala/Singlish script for unambiguous brand/service proper nouns
-(e.g. "Koko") where no corpus example of that script rendering was
-observed, but phonetic variation is minimal. These are flagged
-explicitly rather than silently mixed into corpus-derived evidence.
-
-Scope note: this engine classifies intent (category) only. Sentiment
-and priority scoring were removed — the seller-facing product only
-needs correct category routing, not a separate polarity or urgency
-score.
+Replace backend/app/rules/classifier.py with this file. The existing finalversion
+routing_guards.py and ai_fallback.py are retained unchanged.
 """
 
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
+
 from app.rules.routing_guards import (
     detect_ai_only_risk,
-    needs_confirmation_context_review,
+    contains_mobile_number,
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 1. EVIDENCE MATRIX  (real counts from the annotated corpus — do not invent)
-#    evidence[(category, language)] = number of annotated examples
-# ═══════════════════════════════════════════════════════════════════════════
-
 EVIDENCE: dict[tuple[str, str], int] = {
-    # Positive Feedback
     ("Positive Feedback", "english"): 102,
     ("Positive Feedback", "singlish"): 48,
     ("Positive Feedback", "sinhala"): 41,
     ("Positive Feedback", "mixed"): 24,
     ("Positive Feedback", "emoji"): 7,
-    # Product Inquiry
     ("Product Inquiry", "english"): 29,
     ("Product Inquiry", "singlish"): 35,
     ("Product Inquiry", "sinhala"): 12,
     ("Product Inquiry", "mixed"): 9,
-    # Purchase Intent
     ("Purchase Intent", "english"): 15,
     ("Purchase Intent", "singlish"): 18,
     ("Purchase Intent", "sinhala"): 20,
     ("Purchase Intent", "mixed"): 1,
-    # Price Inquiry
     ("Price Inquiry", "english"): 13,
     ("Price Inquiry", "singlish"): 26,
     ("Price Inquiry", "sinhala"): 12,
     ("Price Inquiry", "mixed"): 1,
-    # Delivery Inquiry
     ("Delivery Inquiry", "english"): 5,
     ("Delivery Inquiry", "singlish"): 15,
     ("Delivery Inquiry", "sinhala"): 4,
     ("Delivery Inquiry", "mixed"): 4,
-    # Negative Feedback/Complaint  (Corpus A + Corpus B)
     ("Negative Feedback/Complaint", "english"): 30,
     ("Negative Feedback/Complaint", "singlish"): 14,
     ("Negative Feedback/Complaint", "sinhala"): 12,
     ("Negative Feedback/Complaint", "mixed"): 8,
-    # Order/Purchase Confirmation
-    ("Order/Purchase Confirmation", "english"): 9,
-    ("Order/Purchase Confirmation", "singlish"): 7,
-    ("Order/Purchase Confirmation", "sinhala"): 2,
-    ("Order/Purchase Confirmation", "mixed"): 3,
-    # Location/Availability
     ("Location/Availability", "english"): 9,
     ("Location/Availability", "singlish"): 7,
     ("Location/Availability", "sinhala"): 0,
     ("Location/Availability", "mixed"): 0,
-    # Payment Method Inquiry
     ("Payment Method Inquiry", "english"): 5,
     ("Payment Method Inquiry", "singlish"): 9,
     ("Payment Method Inquiry", "sinhala"): 1,
     ("Payment Method Inquiry", "mixed"): 0,
-    # Noise/Off-topic
     ("Noise/Off-topic", "english"): 7,
     ("Noise/Off-topic", "singlish"): 4,
     ("Noise/Off-topic", "sinhala"): 1,
@@ -100,38 +55,25 @@ EVIDENCE: dict[tuple[str, str], int] = {
     ("Noise/Off-topic", "emoji"): 1,
 }
 
-# Evidence thresholds → routing policy
-EVIDENCE_HIGH = 5    # >= 5 examples: rule decision stands on its own
-EVIDENCE_LOW = 3     # 3-4 examples: rule fires but AI verifies
-                     # < 3 examples: no rule trust — AI classifies directly
-
-# Categories the rule engine NEVER claims — always AI (insufficient corpus
-# evidence in every language mode: <= 5 total examples each)
+EVIDENCE_HIGH = 5
+EVIDENCE_LOW = 3
 AI_ONLY_CATEGORIES = frozenset({
-    "Warranty/Service Inquiry",
-    "Contact Request",
-    "Price Complaint",
-    "Suggestion",
+    "Warranty/Service Inquiry", "Contact Request", "Price Complaint", "Suggestion"
 })
-
 RULE_CATEGORIES = [
     "Purchase Intent", "Product Inquiry", "Price Inquiry", "Delivery Inquiry",
     "Location/Availability", "Payment Method Inquiry",
-    "Order/Purchase Confirmation", "Positive Feedback",
-    "Negative Feedback/Complaint", "Noise/Off-topic",
+    "Positive Feedback", "Negative Feedback/Complaint", "Noise/Off-topic",
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 2. TEXT NORMALISATION
-# ═══════════════════════════════════════════════════════════════════════════
+CONTEXT_AI_CATEGORIES = frozenset({"Order/Purchase Confirmation"})
+
 
 def normalize(text: str) -> str:
-    """NFC-normalise (Sinhala has NFC/NFD variants in the wild) and
-    lowercase the Latin portion. Sinhala has no case so lower() is safe."""
     if text is None:
         return ""
-    t = unicodedata.normalize("NFC", str(text))
-    return t.lower().strip()
+    return unicodedata.normalize("NFC", str(text)).lower().strip()
+
 
 SINHALA_RANGE = re.compile(r"[\u0D80-\u0DFF]")
 LATIN_RANGE = re.compile(r"[a-zA-Z]")
@@ -140,301 +82,273 @@ EMOJI_RANGE = re.compile(
     "\U00002190-\U000021FF\U00002B00-\U00002BFF\u2764\ufe0f]"
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 3. LANGUAGE DETECTION
-#    Script-range first (deterministic), Singlish lexicon second.
-#    Approach per Barman et al. (2014): script detection as primary signal.
-# ═══════════════════════════════════════════════════════════════════════════
-
-# High-frequency Singlish tokens observed in the corpus. These are romanised
-# Sinhala words that do not exist in English — presence of ANY marks the
-# Latin text as Singlish rather than English.
 SINGLISH_MARKERS = {
-    # price / money
     "kiyada", "kiyda", "keeyda", "kohomada", "kohomda", "kohmada", "gana",
     "gaana", "ganata", "mila", "salli", "keeyada", "kiyad",
-    # want / need / buy
     "oni", "one", "ona", "onee", "ganna", "gannawa", "aragena", "gatta",
     "gaththa", "genna", "matath", "mata", "mama", "mage", "denna",
-    # availability / existence
     "thiyanawada", "tiyenawada", "thiyenawada", "thibeda", "thiyeda",
     "nedda", "ndda", "nadda", "naa", "nane", "nhane", "athi", "tyenne",
     "thinne", "tiyenne", "thiyanawa", "tiyenawa",
-    # good / bad
     "hodai", "hondai", "hodata", "hoda", "niyamai", "supiri", "suppa",
     "patta", "maru", "maretama", "marama", "awl", "awlk", "aulak",
     "savuththu", "sawuththu", "wada", "vada", "wadak", "kaduna",
-    # delivery / order
     "dawas", "dws", "ewanna", "ewnwd", "hambune", "hambuna", "hamben",
     "aawa", "awa", "awilla", "enne", "yanawa", "ynwd", "damma", "demma",
     "kara", "kala", "karanne", "karanna", "krnne", "puluwanda", "puluwnda",
     "barida", "berida", "epa", "meka", "meeka", "ekak", "ekk", "eka",
-    # misc high-frequency
     "machan", "machang", "bro", "aiye", "bn", "ban", "wage", "witharada",
     "witharai", "kenek", "kenkt", "monawada", "mkdd", "mokadda",
 }
 
+
 def detect_language(text: str) -> str:
-    """Returns one of: english, sinhala, singlish, mixed, emoji"""
     t = normalize(text)
     has_sinhala = bool(SINHALA_RANGE.search(t))
     has_latin = bool(LATIN_RANGE.search(t))
     has_emoji = bool(EMOJI_RANGE.search(t))
-
     if has_sinhala and has_latin:
         return "mixed"
     if has_sinhala:
         return "sinhala"
     if has_latin:
-        # Latin script: English or Singlish? Lexicon lookup on word tokens.
         tokens = set(re.findall(r"[a-z]+", t))
-        if tokens & SINGLISH_MARKERS:
-            return "singlish"
-        return "english"
+        return "singlish" if tokens & SINGLISH_MARKERS else "english"
     if has_emoji:
         return "emoji"
-    return "emoji" if not t else "mixed"  # digits/punct-only → treat as emoji/non-text
+    return "emoji" if not t else "mixed"
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 4. KEYWORD RULES
-#    Every keyword below was observed in the annotated corpus, UNLESS
-#    explicitly marked source="synthetic" (see module docstring). Each
-#    rule is (pattern, weight, is_regex, source). Weight reflects
-#    specificity:
-#      3 = unambiguous, category-defining ("koko", "kiyada", "ganna epa")
-#      2 = strong signal, rare collisions
-#      1 = supporting signal, needs company or wins only unopposed
-#    Patterns are matched on normalised text. \b works for Latin;
-#    Sinhala patterns use plain substring (no word boundaries in script).
-# ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class Rule:
     pattern: str
     weight: int
     is_regex: bool = False
-    source: str = "corpus"   # "corpus" = observed in annotated data
-                              # "synthetic" = manually transliterated,
-                              #   used only for unambiguous brand/service
-                              #   names where phonetic variation is minimal
+    source: str = "corpus"
+
 
 def R(p, w, rx=False, source="corpus"):
     return Rule(p, w, rx, source)
 
+
 KEYWORD_RULES: dict[str, list[Rule]] = {
 
-    # ── NEGATIVE FEEDBACK / COMPLAINT ─────────────────────────────────────
-    # Checked FIRST because negation patterns override positive/intent words
-    # ("ganna epa" must beat "ganna"; "wada na" must beat "wada niyamai")
-    "Negative Feedback/Complaint": [
-        # don't-buy warnings (Sinhala + Singlish + English)
-        R(r"\bganna? epa\b", 3, True), R("ගන්න එපා", 3), R("ගන්නෙපා", 3),
-        R(r"\bgandepa\b", 3, True), R(r"\bdon'?t buy\b", 3, True),
-        R(r"\bdonot buy\b", 3, True), R(r"\bdont take\b", 3, True),
-        R("කවුරුවත් ගන්න", 3), R("කිසිම කෙනෙක් ගන්න", 3),
-        # not working / broken
-        R(r"\bnot work", 3, True), R(r"\bwada n[aeh]", 3, True),
-        R(r"\bvada n[aeh]", 3, True), R(r"\bwadak na", 3, True),
-        R("වැඩ නෑ", 3), R("වැඩ කරන්නෙ නෑ", 3), R("වැඩ කරන්නේ නැ", 3),
-        R(r"\bkaduna\b", 3, True), R(r"\bnot charging\b", 3, True),
-        R(r"\bdoesn'?t work\b", 3, True), R(r"\bstopped working\b", 3, True),
-        # waste / worst / fake / cheating
-        R(r"\bwaste\b", 3, True), R(r"\bworst\b", 3, True),
-        R(r"\bfake\b", 3, True), R(r"\bcheat", 3, True), R(r"\bfraud", 3, True),
-        R(r"\bscam", 3, True), R("සවුත්තු", 3), R(r"\bsavuth", 3, True),
-        R(r"\bsawuth", 3, True), R("බොරු", 3), R("රවට්ට", 3),
-        # disappointment / quality complaints
-        R(r"\bdisappoint", 3, True), R(r"\bnot satisfied\b", 3, True),
-        R(r"\bpoor quality\b", 3, True), R(r"\bnot good\b", 2, True),
-        R(r"\bnot comfortable\b", 2, True), R(r"\bbad product", 3, True),
-        R(r"\bnot quality\b", 2, True), R("පාඩුයි", 3),
-        R("හිතුව තරම් කොලිටි නෑ", 3), R("කොලිටි නෑ", 3),
-        # wrong item / missing / damaged
-        R(r"\bwrong colou?r\b", 3, True), R(r"\bmissing\b", 2, True),
-        R(r"\bdamage", 2, True), R(r"\bbroken\b", 3, True),
-        R("වෙන ekak", 2), R("wena ekak", 2),
-        R(r"\billapu pata neme\b", 3, True),
-        R(r"\billapu eka (nemei|neme)\b", 3, True),
-        R(r"\billapu colou?r eka (nemei|neme)\b", 3),
-        R(r"\billapu size eka (nemei|neme)\b", 3, True),
-        R("ඉල්ලපු එක නෙමෙයි", 3), R("ඉල්ලපු එක නෙමේ", 3),
-        R("ඉල්ලපු පාට එක නෙමෙයි", 3), R("ඉල්ලපු පාට එක නෙමේ", 3),
-        R("ඉල්ලපු සයිස් එක නෙමෙයි", 3), R("ඉල්ලපු සයිස් එක නෙමේ", 3),
-        # order not arrived / seller not responding (complaint form)
-        R(r"\border? (eka )?thama n[ha]", 3, True),
-        R(r"\banswer (karanne|krnne) na", 3, True),
-        R(r"\bnot answering\b", 3, True), R(r"\breply karanne na", 3, True),
-        R(r"\breact karanne n[ae]", 3, True),
-        R("එකයි ඇවිත්", 2), R(r"\bstill waiting\b", 3, True),
-        R(r"\bnever received\b", 3, True),
-        R(r"\bahenne? na", 2, True), R("ඇහෙන්නෙ නෑ", 3), R("ඇහෙන්නේ", 1),
-        R(r"\b(one|1) side not working\b", 3, True),
-        R(r"\bahenawa adui\b", 3, True), R("බැලන්ස් නෑ", 3),
-        R(r"\bepa\b", 1, True), R("එපා", 1),
-    ],
-
-    # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
     "Payment Method Inquiry": [
-        R(r"\bkoko\b", 3, True), R(r"\binstallment", 3, True),
-        R(r"\bcod\b", 3, True),
-        R(r"\bcard payment", 3, True), R(r"\bcard eken\b", 3, True),
+        R(r"\bkoko\b", 3, True),
+        R(r"\binstallment", 3, True),
+        R(r"\bcod\b", 2, True),
+        R(r"\bcard", 3, True),
         R(r"\bpayment (method|plan|available|accept)", 3, True),
         R(r"\bbank transfer\b", 3, True),
-        R(r"\bcash on delivery\b", 3, True),
-        R(r"\bpay(ment)? .{0,12}(available|accept|puluwanda|thiyanawada)", 2, True),
-        R("කොකො", 3, source="synthetic"),
-        R(r"\bkokoo\b", 3, True, source="synthetic"),
+        R(r"\bcash on delivery\b", 2, True),
+        R("කොකො", 3),
+        R(r"\bpay(ment)? .{0,12}(puluwanda|thiyanawada)", 2, True),
+        R(r"\bkokoo\b", 3, True),
     ],
 
-    # ── PRICE INQUIRY ─────────────────────────────────────────────────────
+
     "Price Inquiry": [
-        R(r"\bmila kiyada\b", 3, True), R(r"\bkiyada\b", 3, True),
-        R(r"\bkiyda\b", 3, True), R(r"\bkeeyda\b", 3, True),
-        R(r"\bkeeyada\b", 3, True), R(r"\bkiyad\b", 3, True),
-        R("කීයද", 3), R("කියද", 3), R("මිල", 2), R("ගාන", 2), R("ගණන", 1),
-        R(r"\bprice\b", 3, True), R(r"\bprize\b", 3, True),  # common misspelling
-        R(r"\bhow much\b", 3, True), R(r"\bprice list\b", 3, True),
-        R(r"\bgana danna\b", 3, True), R(r"\bgaana\b", 2, True),
-        R(r"\bfull price\b", 3, True),
+        R(r"\bmila\b", 3, True),
+        R(r"\bkiyada\b", 2, True),
+        R(r"\bkiyda\b", 2, True),
+        R(r"\bkeeyda\b", 2, True),
+        R(r"\bkeeyada\b", 2, True),
+        R(r"\bkiyad\b", 3, True),
+        R("කීයද", 2),
+        R("කියද", 2),
+        R("ගාන", 1),
+        R(r"\bprize\b", 3, True),
+        R(r"\bhow much\b", 2, True),
+        R(r"\blist\b", 2, True),
+        R(r"\bgana\b", 2, True),
+        R(r"\bgaana\b", 1, True),
     ],
 
-    # ── DELIVERY INQUIRY ──────────────────────────────────────────────────
-    "Delivery Inquiry": [
-        R(r"\bdelivery (charge|cost|fee|kiyada|kohomada)", 3, True),
-        R(r"\bdawas kiy[ak]", 3, True), R(r"\bdws kiy", 3, True),
-        R(r"\bcourier\b", 3, True),
-        R(r"\bdelivery (thiyanawada|available|karanawada|karanwda)", 3, True),
-        R(r"\bhow (long|many days)\b", 2, True),
-        R(r"\border eka dawas\b", 3, True),
-        R("ඩිලිවරි", 2), R("ගෙන්නන", 2), R(r"\bgenna ganne\b", 2, True),
-        R(r"\bdeliver\b", 2, True), R(r"\bdelivery\b", 1, True),
-        R(r"\bshipping\b", 1, True),
-        R(r"\bweekend .{0,15}orders?\b", 2, True),
-        R(r"\borders? ewnw", 2, True),
-    ],
-
-    # ── LOCATION / AVAILABILITY ───────────────────────────────────────────
+    
     "Location/Availability": [
-        R(r"\bshowroom\b", 3, True), R(r"\bshop location\b", 3, True),
-        R(r"\bshop (eka|ekak)\b", 3, True),
-        R(r"\bwhere can i buy\b", 3, True), R(r"\bwhere .{0,10}(buy|get|shop)\b", 2, True),
-        R(r"\bvisit (karala|karanna)\b", 3, True),
-        R(r"\bawilla balala\b", 3, True),
-        R(r"\bkohenda\b", 3, True), R(r"\bkohewath\b", 2, True),
-        R(r"\bi'?m in \w+", 2, True),  # "I need I'm in Welimada"
-        R(r"\bbranch\b", 2, True), R(r"\boutlet\b", 2, True),
-        R("ශොප්", 2), R("ශෝරූම්", 3),
+        R(r"\bshowroom\b", 3, True),
+        R(r"\blocation\b", 2, True),
+        R(r"\bshop (eka|ekak)\b", 2, True),
+        R(r"\bwhere .{0,10}(buy|get|shop)\b", 2, True),
+        R(r"\bvisit (karala|karanna)\b", 2, True),
+        R(r"\bawilla balala\b", 2, True),
+        R(r"\bkohenda\b", 3, True),
+        R(r"\bkohewath\b", 2, True),
+        R(r"\bi'?m in \w+", 1, True),
+        R(r"\bbranch\b", 2, True),
+        R(r"\boutlet\b", 2, True),
+        R("ශොප්", 2),
+        R("ශෝරූම්", 3),
     ],
 
-    # ── ORDER / PURCHASE CONFIRMATION ─────────────────────────────────────
-    "Order/Purchase Confirmation": [
-        R(r"\border (kara|kala|kla)\b", 3, True),
-        R(r"\bo[rd]der ek[ka]+ (damma|demma|dunna)\b", 3, True),
-        R(r"\boder ekk damma\b", 3, True),
-        R("ඕඩර් කරා", 3), R("ඕඩර් කලා", 3), R("ඔඩර් කරා", 3),
-        R(r"\bgot mine\b", 3, True), R(r"\bi got my\b", 3, True),
-        R(r"\breceived (my|the|today)\b", 3, True),
-        R(r"\bhambun[ea]\b", 3, True), R(r"\bhambuna\b", 3, True),
-        R(r"\bgatta\b", 2, True), R(r"\bgaththa\b", 2, True),
-        R(r"\bmath gatta\b", 3, True),
-        R("අද අවා", 3), R("ඇවිත්", 1), R(r"\baragena\b", 2, True),
-        R(r"\bordered\b", 2, True), R(r"\border (kalaa?|krla)\b", 2, True),
-        R(r"\bmamath .{0,6}gatha\b", 3, True),
+    "Delivery Inquiry": [
+        R(r"\bdeliver\b", 2, True),
+        R(r"\bdelivery\b", 1, True),
+        R("ඩිලිවරි", 1),
+        R(r"\b(?:delivery|deliver|shipping|courier)\s+(?:charges?|cost|fees?|kiyada|kohomada|available|thiyanawada|karanawada|karanwda)\b", 3, True),
+        R(r"\bdawas kiy[ak]", 3, True),
+        R(r"\bdws kiy", 3, True),
+        R(r"\bcourier\b", 3, True),
+        R(r"\b(karanawada|karanwda)", 1, True),
+        R(r"\bhow (long|many days)\b", 2, True),
+        R(r"\border eka dawas\b", 2, True),
+        R("ගෙන්නන", 2),
+        R(r"\bgenna ganne\b", 1, True),
+        R(r"\bshipping\b", 1, True),
     ],
 
-    # ── PURCHASE INTENT ───────────────────────────────────────────────────
     "Purchase Intent": [
-        R(r"\bmatath (oni|one|ona)\b", 3, True),
-        R(r"\bmata (oni|one|ona|onee)\b", 3, True),
-        R("මටත් ඕනේ", 3), R("මටත් ඕනා", 3), R("මටත් ඕන", 3), R("මටත් ඕනි", 3),
-        R("මටත් එකක්", 3), R("ඕනි", 2), R("ඕනේ", 2), R("ඕන", 1),
-        R(r"\bi need (one|it|this)\b", 3, True), R(r"\bi need\b", 2, True),
-        R(r"\bi want (one|it|this)\b", 3, True),
-        R(r"\bganna (one|oni|ona)\b", 3, True),
-        R(r"\bgannawa\b", 2, True), R(r"\bgannawamai\b", 3, True),
-        R(r"\baniwaren .{0,8}gannawa\b", 3, True),
-        R(r"\blooking for\b", 2, True),
-        R(r"\bekk oni\b", 3, True), R(r"\bekak oni\b", 3, True),
-        R(r"\b\d+\s?ml denna\b", 3, True), R(r"\bdenna\b", 1, True),
-        R(r"\benne .{0,8}order\b", 2, True),
-        R("ගන්න hadanne", 3), R(r"\bganna hadanne\b", 3, True),
-        R(r"\beka (oni|one)\b", 2, True),
-    ],
-
-    # ── PRODUCT INQUIRY ───────────────────────────────────────────────────
+            R(r"\bneed\b", 2, True),
+            R(r"\bwant\b", 2, True),
+            R(r"\bganna\b", 1, True),
+            R(r"\bgannawa\b", 2, True),
+            R(r"\b(oni|one|ona|onee)\b", 2, True),
+            R(r"\b(ekk|ekak)\b", 1, True),
+            R("මටත්", 3),
+            R(r"(?<![\u0D80-\u0DFF])(ඕනේ|ඕනා|ඕනි|ඕන)(?![\u0D80-\u0DFF])", 2, True),
+            R(r"\blooking for\b", 2, True),
+            R(r"\bdenna\b", 1, True),
+            R("ගන්න", 1),
+            R(r"\bganna\b", 1, True),
+            R(r"\bpuluwanda\b", 1, True),
+        ],
+    
+    
     "Product Inquiry": [
-        # availability-of-variant questions
-        R(r"\bthiyanawada\b", 3, True), R(r"\btiyenawada\b", 3, True),
-        R(r"\bthiyenawada\b", 3, True), R(r"\bthibeda\b", 3, True),
-        R(r"\bthiyeda\b", 3, True), R(r"\bnedda\b", 3, True),
-        R(r"\bndda\b", 3, True), R(r"\bnadda\b", 3, True),
-        R("තියෙනවද", 3), R("තියෙනවාද", 3), R("තිබේද", 3), R("තියෙද", 3),
-        R("විතරද", 2), R(r"\bwitharada\b", 3, True),  R(r"\bavailable da\b", 3, True),
-        # can-I-get questions
-        R(r"\bganna puluwanda\b", 2, True), R(r"\bganna puluwnda\b", 2, True),
-        R(r"\bganna barida\b", 2, True), R(r"\bganna berida\b", 2, True),
-        R(r"\bcan (i|we) (get|purchase|buy)\b", 2, True),
-        R("ගන්න පුළුවන්ද", 2), R("ගන්න බැරිද", 2),
-        # genuine questions (interrogative structure present: "how to",
-        # "kohomada"/how, "monawada"/what, "-da/ද" particle)
-        R(r"\bmonawada\b", 2, True), R("මොනවද", 2), R("මොනවාද", 2),
-        R(r"\bhow to use\b", 2, True),
-        R(r"\bis it ok to use\b", 3, True), R(r"\bsafe (for|to)\b", 2, True),
-        R(r"\bkohomada use\b", 2, True),
-        R(r"\bkiyannako\b", 2, True),  # "recommend me one" requests
-        R(r"\bhodama .{0,12}(ekak|ekk|mkdd|mokadda)\b", 2, True),
-        
+            R(r"\bthiyanawada\b", 3, True),
+            R(r"\bthiyenawada\b", 3, True),
+            R(r"\bnedda\b", 3, True),
+            R("විතරද", 3),
+            R(r"\bwitharada\b", 2, True),
+            R(r"\bganna barida\b", 3, True),
+            R(r"\bmonawada\b", 2, True),
+            R("මොනවද", 2),
+            R("මොනවාද", 3),
+            R(r"\bhow to use\b", 2, True),
+            R(r"\bsafe (for|to)\b", 2, True),
+            R(r"\bkohomada use\b", 2, True),
+            R(r"\bkiyannako\b", 2, True),
+            R(r"\bhodama .{0,12}(ekak|ekk|mkdd|mokadda)\b", 2, True),
+        ],
+
+    "Negative Feedback/Complaint": [
+        R(r"\bganna? epa\b", 3, True),
+        R("ගන්න එපා", 3),
+        R("ගන්නෙපා", 3),
+        R(r"\bgandepa\b", 3, True),
+        R(r"\bdon'?t buy\b", 3, True),
+        R(r"\bdonot buy\b", 2, True),
+        R(r"\bdont take\b", 2, True),
+        R(r"\bnot work", 3, True),
+        R(r"\bwada n[aeh]", 2, True),
+        R(r"\bwadak na", 2, True),
+        R("වැඩ නෑ", 2),
+        R("වැඩ කරන්නෙ නෑ", 2),
+        R(r"\bkaduna\b", 2, True),
+        R(r"\bdoesn'?t work\b", 2, True),
+        R(r"\bstopped working\b", 2, True),
+        R(r"\bwaste\b", 3, True),
+        R(r"\bworst\b", 3, True),
+        R(r"\bfake\b", 2, True),
+        R(r"\bcheat", 2, True),
+        R(r"\bfraud", 3, True),
+        R(r"\bscam", 3, True),
+        R("සවුත්තු", 2),
+        R(r"\bsavuth", 2, True),
+        R(r"\bsawuth", 2, True),
+        R("බොරු", 2),
+        R("රවට්ට", 2),
+        R(r"\bdisappoint", 2, True),
+        R(r"\bnot satisfied\b", 2, True),
+        R(r"\bpoor quality\b", 3, True),
+        R(r"\bnot good\b", 2, True),
+        R(r"\bnot comfortable\b", 2, True),
+        R(r"\bbad product\b", 3, True),
+        R(r"\bnot quality\b", 2, True),
+        R("පාඩුයි", 2),
+        R("හිතුව තරම්", 2),
+        R("කොලිටි නෑ", 2),
+        R(r"\bwrong (item|product|colou?r|size|model)\b", 3, True),
+        R("වැඩ කරන්නේ නැ", 2),
+        R(r"\bmissing\b", 2, True),
+        R(r"\bdamage", 2, True),
+        R(r"\bbroken\b", 3, True),
+        R(r"\b(wena|vena|different|wrong)\b", 2, True),
+        R("වෙන එකක්", 2),
+        R(r"\billapu\b.{0,30}\b(nemei|neme)\b", 2, True),
+        R(r"ඉල්ලපු.{0,30}(නෙමෙයි|නෙමේ)", 2, True),
+        R(r"\border? (eka )?thama n[ha]", 3, True),
+        R(r"\banswer (karanne|krnne) na", 2, True),
+        R(r"\bnot answering\b", 2, True),
+        R(r"\breply karanne na", 2, True),
+        R(r"\breact karanne n[ae]", 3, True),
+        R(r"\bstill waiting\b", 3, True),
+        R(r"\bnever received\b", 3, True),
     ],
 
-    # ── POSITIVE FEEDBACK ─────────────────────────────────────────────────
+
     "Positive Feedback": [
-        R(r"\bbest\b", 2, True), R(r"\bgood\b", 2, True), R(r"\bgreat\b", 2, True),
-        R(r"\bsuper[bh]?\b", 2, True), R(r"\bexcellent\b", 3, True),
-        R(r"\brecommend", 3, True), R(r"\breccomend", 3, True),
-        R(r"\brecomend", 3, True), R(r"\brecommnd", 3, True),
-        R(r"\bperfect\b", 3, True), R(r"\blove (it|this)\b", 3, True),
-        R(r"\bnice\b", 2, True), R(r"\bwell done\b", 3, True),
-        R(r"\bamazing\b", 3, True), R(r"\bawesome\b", 3, True),
-        R(r"\bsupiri\b", 3, True), R(r"\bsuppa\b", 3, True),
-        R(r"\bsupiriyak\b", 3, True), R(r"\bniyamai\b", 3, True),
-        R(r"\bniyamyi\b", 3, True), R(r"\bpatta\b", 3, True),
-        R(r"\bfatta\b", 3, True), R(r"\bmaru\b", 2, True),
-        R(r"\bmaretama\b", 3, True), R(r"\bhodai\b", 2, True),
-        R(r"\bhondai\b", 2, True), R(r"\bhodata\b", 2, True),
-        R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
-        R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
+        R(r"\bbest\b", 3, True),
+        R(r"\bgood\b", 2, True),
+        R(r"\bgreat\b", 3, True),
+        R(r"\bsuper[bh]?\b", 3, True),
+        R(r"\bexcellent\b", 3, True),
+        R(r"\brecommend", 2, True),
+        R(r"\breccomend", 2, True),
+        R(r"\brecomend", 2, True),
+        R(r"\brecommnd", 2, True),
+        R(r"\bperfect\b", 3, True),
+        R(r"\blove (it|this)\b", 3, True),
+        R(r"\bnice\b", 1, True),
+        R(r"\bwell done\b", 2, True),
+        R(r"\bamazing\b", 2, True),
+        R(r"\bawesome\b", 3, True),
+        R(r"\bsupiri\b", 3, True),
+        R(r"\bsuppa\b", 2, True),
+        R(r"\bsupiriyak\b", 2, True),
+        R(r"\bniyamai\b", 3, True),
+        R(r"\bniyamyi\b", 2, True),
+        R(r"\bpatta\b", 3, True),
+        R(r"\bfatta\b", 3, True),
+        R(r"\bmaru\b", 3, True),
+        R(r"\bmaretama\b", 3, True),
+        R(r"\bhodai\b", 3, True),
+        R(r"\bhondai\b", 3, True),
+        R(r"\bhodata\b", 2, True),
+        R("හොදයි", 2),
+        R("හොඳයි", 2),
+        R("හොදම හොදයි", 2),
         R(r"(^|\s)හොද(\s|$|,|\.|!|\?)", 2, True),
-        R("සුපිරි", 3), R("නියමයි", 3), R("පට්ට", 3), R("මරු", 2),
-        R("ආදරෙයි", 3), R("ආදරේ", 2),
-        R(r"\bcomfortable\b", 2, True), R(r"\bquality\b", 1, True),
-        R(r"\bworth\b", 2, True), R(r"\bthanks?\b", 2, True),
-        R(r"\bthank you\b", 2, True), R("ස්තූතියි", 3),
-        R(r"\bgrown\b", 1, True), R(r"\bvaluble\b", 2, True),
-        R(r"\bvaluable\b", 2, True),
+        R("සුපිරි", 3),
+        R("නියමයි", 2),
+        R("පට්ට", 3),
+        R("මරු", 3),
+        R("ආදරෙයි", 2),
+        R("ආදරේ", 3),
+        R(r"\bcomfortable\b", 2, True),
+        R(r"\bquality\b", 2, True),
+        R(r"\bworth\b", 2, True),
+        R(r"\bthanks?\b", 2, True),
+        R(r"\bthank you\b", 3, True),
+        R("ස්තූතියි", 3),
+        R(r"\bvaluble\b", 3, True),
+        R(r"\bvaluable\b", 3, True),
     ],
 
-    # ── NOISE / OFF-TOPIC ─────────────────────────────────────────────────
+
     "Noise/Off-topic": [
-        R(r"\bfollow (kar|back|me)", 3, True), R("මාවත් follow", 3),
-        R(r"^\s*$", 3, True),  # empty
-        R(r"^nan$", 3, True),  # null artefacts
+        R(r"\bfollow (kar|back|me)", 2, True),
+        R("මාවත් follow", 2),
     ],
+
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 5. EMOJI ANALYSER  (supplementary signal — Liu et al. 2021 support)
-#    Still used to help decide INTENT for emoji-only comments; no longer
-#    produces a separate sentiment output.
-# ═══════════════════════════════════════════════════════════════════════════
 
 POSITIVE_EMOJI = set("❤️🥰😍💪👍🔥💯♥️💗🤍💫😎🩵😊🙂👌✨🎉🥳😁💖")
 NEGATIVE_EMOJI = set("😡🤮😭😒🚫💔😤😠🙄😞😢")
 
+
 def analyze_emoji(text: str) -> tuple[str, int, int]:
-    """Returns (polarity, positive_count, negative_count). Polarity here
-    only decides which intent bucket an emoji-only comment falls into
-    (Positive Feedback vs Negative Feedback/Complaint) — it is not
-    exposed as a separate sentiment field."""
     pos = sum(1 for ch in text if ch in POSITIVE_EMOJI)
     neg = sum(1 for ch in text if ch in NEGATIVE_EMOJI)
     if pos > neg and pos > 0:
@@ -443,25 +357,8 @@ def analyze_emoji(text: str) -> tuple[str, int, int]:
         return "Negative", pos, neg
     return "Neutral", pos, neg
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 6. NEGATION GUARD
-#    Positive keywords immediately followed/preceded by negators must not
-#    count as positive. Observed corpus patterns: "hoda na", "wada na",
-#    "quality ekak na", "hodai na". This decides INTENT (routes to
-#    Negative Feedback/Complaint), not a sentiment label.
-# ═══════════════════════════════════════════════════════════════════════════
-
-# NEGATION_PATTERNS = [
-#     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
-#     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
-#     re.compile(r"quality\s+ekak\s+na", re.I),
-#     re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
-#     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
-#     re.compile(r"don'?t\s+recommend", re.I),
-# ]
 
 _NEGATION_FILLER = r"(?:the|a|an|that|so|really|very|quite|too)\s+"
-
 NEGATION_PATTERNS = [
     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
@@ -469,30 +366,28 @@ NEGATION_PATTERNS = [
     re.compile(
         rf"\bnot\s+(?:{_NEGATION_FILLER})?"
         r"(good|great|nice|comfortable|working|worth|satisfied|recommended?|"
-        r"best|excellent|amazing|perfect|quality)\b",
-        re.I
+        r"best|excellent|amazing|perfect|quality)\b", re.I
     ),
     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
     re.compile(r"don'?t\s+recommend", re.I),
 ]
-
-# Question-form guard: "hodai + da" = "is it good?" — an inquiry, not praise.
-# The Sinhala/Singlish interrogative particle "da/ද" flips feedback→inquiry.
 QUESTION_FORM_PATTERNS = [
     re.compile(r"(hodai|hondai|hoda)(y|i)?da\b", re.I),
     re.compile(r"හොදයිද|හොඳයිද|හොඳද|හොදද"),
     re.compile(r"(supiri|niyamai|maru)da\b", re.I),
+
+    re.compile(r"\b(?:is (?:this|it)|are (?:these|they))\s+(?:really\s+)?(?:good|safe|suitable|effective)\s+for\b", re.I),
+    re.compile(r"\b(?:do|would) you recommend(?: this| it)?\b", re.I),
 ]
+
 
 def is_quality_question(text: str) -> bool:
     return any(p.search(text) for p in QUESTION_FORM_PATTERNS)
 
+
 def has_negated_positive(text: str) -> bool:
     return any(p.search(text) for p in NEGATION_PATTERNS)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 7. CLASSIFICATION RESULT
-# ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class Classification:
@@ -500,58 +395,132 @@ class Classification:
     language: str
     primary_intent: Optional[str]
     secondary_intent: Optional[str]
-    confidence: str                # "high" | "medium" | "none"
-    route: str                     # "rules_only" | "rules_ai_verify" | "ai_only"
+    confidence: str
+    route: str
     ai_assisted: bool
-    matched_keywords: dict = field(default_factory=dict)  # category -> [patterns]
+    matched_keywords: dict = field(default_factory=dict)
     scores: dict = field(default_factory=dict)
     evidence_count: int = 0
     route_reason: str = ""
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 8. THE CLASSIFIER
-# ═══════════════════════════════════════════════════════════════════════════
 
-# Minimum keyword score for a category to be considered "matched"
 SCORE_THRESHOLD = 2
-# Margin by which the winner must beat the runner-up to be unambiguous
 CLEAR_WINNER_MARGIN = 2
 
+
+PRICE_REQUEST_PATTERNS = (
+
+    re.compile(r"^\s*(?:price|prize|මිල|ගාන)\s*[?!.]*\s*$", re.I),
+    re.compile(r"\b(?:price|prize)\b\s*(?:pl[sz]\b|please\b|kiyada\b|kiyda\b|\?)", re.I),
+    re.compile(r"\b(?:what(?:'s| is)?\s+(?:the\s+)?price|tell\s+me\s+(?:the\s+)?price)\b", re.I),
+    re.compile(r"\b(?:price|prize)\s+(?:of|for)\b.{0,45}\?", re.I),
+    re.compile(r"(?:මිල|ගාන)\s*(?:කීයද|කියද|කියන්න|කීය|\?)"),
+    re.compile(r"\b(?:gana|gaana)\s+(?:kiyada|kiyda|danna|kiyanna|kiyan|kiyanne)\b", re.I),
+)
+
+
+
+DETAIL_REQUEST_PATTERN = re.compile(
+    r"\b(?:need|want)(?:\s+to)?(?:\s+more)?\s+"
+    r"(?:details?|info(?:rmation)?|specs?|specifications?|features?)\b", re.I
+)
+DELIVERY_REQUEST_PATTERNS = (
+    re.compile(
+        r"\b(?:delivery|deliver|shipping|courier)\s+(?:charges?|cost|fees?|"
+        r"kiyada|kohomada|available|thiyanawada|karanawada|karanwda)\b", re.I
+    ),
+    re.compile(r"\b(?:delivery|deliver|shipping|courier)\s+to\s+[a-z]+\b", re.I),
+    re.compile(r"\b(?:do|can|could|will)\s+(?:you\s+)?(?:deliver|delivery|ship)\s+to\b", re.I),
+    re.compile(r"\bhow\s+(?:long|many\s+days)\b.{0,35}\b(?:delivery|deliver|shipping)\b", re.I),
+)
+GENERIC_DELIVERY_PATTERNS = frozenset({
+    r"\bdeliver\b", r"\bdelivery\b", r"\bshipping\b", r"\bcourier\b"
+})
+GENERIC_PRICE_PATTERNS = frozenset({
+    r"\bkiyada\b", r"\bkiyda\b", r"\bkeeyda\b", r"\bkeeyada\b",
+    r"\bkiyad\b", r"\bhow much\b", r"\bgana\b", r"\bgaana\b",
+    "ගාන", "කීයද", "කියද"
+})
+
+def _matches_any(text: str, patterns: tuple) -> bool:
+    return any(p.search(text) for p in patterns)
+
+
 def _score_categories(norm_text: str) -> tuple[dict, dict]:
-    """Score every rule category against the text. Returns (scores, matches)."""
     scores: dict[str, int] = {}
     matches: dict[str, list[str]] = {}
     negated = has_negated_positive(norm_text)
+    quality_question = is_quality_question(norm_text)
+    details_request = bool(DETAIL_REQUEST_PATTERN.search(norm_text))
+    delivery_request = _matches_any(norm_text, DELIVERY_REQUEST_PATTERNS)
+    price_request = (_matches_any(norm_text, PRICE_REQUEST_PATTERNS)
+                     and not PRICE_WITHHELD_COMPLAINT_PATTERN.search(norm_text))
+    scoped_delivery_rule = any(
+        r.is_regex and "(?:delivery|deliver|shipping|courier)" in r.pattern
+        and re.search(r.pattern, norm_text)
+        for r in KEYWORD_RULES.get("Delivery Inquiry", [])
+    )
 
     for category, rules in KEYWORD_RULES.items():
-        s = 0
+        score = 0
         hit = []
+        seen_exact = set()
         for rule in rules:
-            if rule.is_regex:
-                if re.search(rule.pattern, norm_text):
-                    s += rule.weight
-                    hit.append(rule.pattern)
-            else:
-                if rule.pattern.lower() in norm_text:
-                    s += rule.weight
-                    hit.append(rule.pattern)
-        # Negation guard: suppress Positive Feedback if positives are negated
-        if category == "Positive Feedback" and negated:
-            s = 0
-            hit = ["<suppressed: negated positive>"]
-        # Question-form guard: "hodaida?" is an inquiry about quality, not praise
-        if category == "Positive Feedback" and is_quality_question(norm_text):
-            s = 0
-            hit = ["<suppressed: quality question form>"]
-        if s > 0:
-            scores[category] = s
-            matches[category] = hit
 
-    # Question-form bonus: quality questions are Product Inquiry
-    if is_quality_question(norm_text):
-        scores["Product Inquiry"] = scores.get("Product Inquiry", 0) + 3
+            key = (rule.pattern, rule.is_regex)
+            if key in seen_exact:
+                continue
+            seen_exact.add(key)
+
+            if category == "Purchase Intent" and details_request and rule.pattern in (
+                r"\bneed\b", r"\bwant\b"
+            ):
+                continue
+
+
+            if category == "Delivery Inquiry" and (scoped_delivery_rule or delivery_request) \
+                    and rule.pattern in GENERIC_DELIVERY_PATTERNS:
+                continue
+            matched = (bool(re.search(rule.pattern, norm_text)) if rule.is_regex
+                       else rule.pattern.lower() in norm_text)
+            if matched:
+                score += rule.weight
+                hit.append(rule.pattern)
+
+
+        if category == "Price Inquiry" and price_request:
+            score = max(score, 3)
+            hit.append("<price request context>")
+        if category == "Delivery Inquiry" and delivery_request:
+            score = max(score, 3)
+            hit.append("<delivery request context>")
+        if category == "Product Inquiry" and details_request:
+            score = max(score, 3)
+            hit.append("<details/information request context>")
+
+
+        if category == "Positive Feedback" and negated:
+            score, hit = 0, ["<suppressed: negated positive>"]
+        if category == "Positive Feedback" and quality_question:
+            score, hit = 0, ["<suppressed: quality question form>"]
+        if score > 0:
+            scores[category], matches[category] = score, hit
+
+
+    combined_price_delivery = bool(re.search(
+        r"\bhow\s+much\b.{0,90}\b(?:with|including|plus)\s+(?:the\s+)?delivery\b",
+        norm_text, re.I
+    ))
+    if delivery_request and not price_request and not combined_price_delivery:
+        price_hits = matches.get("Price Inquiry", [])
+        if price_hits and all(h in GENERIC_PRICE_PATTERNS for h in price_hits):
+            scores.pop("Price Inquiry", None)
+            matches.pop("Price Inquiry", None)
+
+
+    if quality_question:
+        scores["Product Inquiry"] = max(scores.get("Product Inquiry", 0), 3)
         matches.setdefault("Product Inquiry", []).append("<quality question form>")
-    # Negated positives are complaints
     if negated:
         scores["Negative Feedback/Complaint"] = scores.get("Negative Feedback/Complaint", 0) + 3
         matches.setdefault("Negative Feedback/Complaint", []).append("<negated positive>")
@@ -559,12 +528,10 @@ def _score_categories(norm_text: str) -> tuple[dict, dict]:
 
 
 def classify(text: str) -> Classification:
-    """Full hybrid layer-1 classification with evidence-based routing."""
     norm = normalize(text)
     lang = detect_language(norm)
     emoji_polarity, pos_e, neg_e = analyze_emoji(text)
 
-    # ---- Emoji-only comments ------------------------------------------------
     if lang == "emoji":
         if emoji_polarity == "Positive":
             ev = EVIDENCE.get(("Positive Feedback", "emoji"), 0)
@@ -582,8 +549,7 @@ def classify(text: str) -> Classification:
             return Classification(
                 text=text, language=lang,
                 primary_intent="Negative Feedback/Complaint", secondary_intent=None,
-                confidence="medium",
-                route="rules_ai_verify", ai_assisted=True,
+                confidence="medium", route="rules_ai_verify", ai_assisted=True,
                 matched_keywords={"Negative Feedback/Complaint": [f"emoji x{neg_e}"]},
                 evidence_count=0,
                 route_reason="Emoji-only negative — no corpus evidence for this cell; AI verifies",
@@ -594,12 +560,7 @@ def classify(text: str) -> Classification:
             ai_assisted=True, route_reason="Emoji/non-text with no polarity signal",
         )
 
-    # ---- AI-only risk guard ---------------------------------------------------
-    # Detects cues for the 4 sparse AI-only categories (Warranty/Service,
-    # Contact Request, Price Complaint, Suggestion) BEFORE rule scoring,
-    # so shared vocabulary (e.g. "price") doesn't leak into a rule category.
-    ai_only_guard = detect_ai_only_risk(norm)
-    if ai_only_guard is not None:
+    if contains_mobile_number(norm):
         return Classification(
             text=text,
             language=lang,
@@ -608,50 +569,31 @@ def classify(text: str) -> Classification:
             confidence="none",
             route="ai_only",
             ai_assisted=True,
-            matched_keywords={},
+            matched_keywords={"Order/Purchase Confirmation": ["<mobile number detected>"]},
             scores={},
             evidence_count=0,
+            route_reason=(
+                "Mobile number detected; AI must determine whether the complete "
+                "comment contains name + mobile number + delivery address as an "
+                "Order/Purchase Confirmation."
+            ),
+        )
+
+    ai_only_guard = detect_ai_only_risk(norm)
+    if ai_only_guard is not None:
+        return Classification(
+            text=text, language=lang,
+            primary_intent=None, secondary_intent=None,
+            confidence="none", route="ai_only", ai_assisted=True,
+            matched_keywords={}, scores={}, evidence_count=0,
             route_reason=ai_only_guard.reason,
         )
 
-    # ---- Keyword scoring ----------------------------------------------------
     scores, matches = _score_categories(norm)
-
-    # ---- Order-confirmation context guard ------------------------------------
-    # An order/receipt word ("gaththa", "ඕඩර් කරා") used inside a sentence
-    # that also describes a problem should not be trusted as a rule-only
-    # Order/Purchase Confirmation. Route to AI instead of forcing a category.
-    confirmation_review = needs_confirmation_context_review(norm)
-
-    if confirmation_review and scores:
-        ranked_for_guard = sorted(
-            scores.items(), key=lambda kv: kv[1], reverse=True
-        )
-        guarded_primary = ranked_for_guard[0][0]
-
-        if (
-            guarded_primary == "Order/Purchase Confirmation"
-            or "Order/Purchase Confirmation" in scores
-        ):
-            return Classification(
-                text=text,
-                language=lang,
-                primary_intent=guarded_primary,
-                secondary_intent="Negative Feedback/Complaint",
-                confidence="medium",
-                route="rules_ai_verify",
-                ai_assisted=True,
-                matched_keywords=matches,
-                scores=scores,
-                evidence_count=EVIDENCE.get((guarded_primary, lang), 0),
-                route_reason=confirmation_review,
-            )
-
     if not scores:
         return Classification(
             text=text, language=lang, primary_intent=None, secondary_intent=None,
-            confidence="none", route="ai_only",
-            ai_assisted=True, scores={},
+            confidence="none", route="ai_only", ai_assisted=True, scores={},
             route_reason="No keyword rule matched — outside rule vocabulary coverage",
         )
 
@@ -659,9 +601,8 @@ def classify(text: str) -> Classification:
     primary, primary_score = ranked[0]
     secondary = None
     if len(ranked) > 1 and ranked[1][1] >= SCORE_THRESHOLD:
-        secondary = ranked[0 + 1][0]
+        secondary = ranked[1][0]
 
-    # ---- Below score threshold → not a confident rule match -----------------
     if primary_score < SCORE_THRESHOLD:
         return Classification(
             text=text, language=lang, primary_intent=primary, secondary_intent=None,
@@ -670,9 +611,8 @@ def classify(text: str) -> Classification:
             route_reason=f"Keyword score {primary_score} below threshold {SCORE_THRESHOLD}",
         )
 
-    # ---- Ambiguous: two categories tied or nearly tied -----------------------
-    if len(ranked) > 1 and (primary_score - ranked[1][1]) < CLEAR_WINNER_MARGIN \
-            and ranked[1][1] >= SCORE_THRESHOLD:
+    if (len(ranked) > 1 and (primary_score - ranked[1][1]) < CLEAR_WINNER_MARGIN
+            and ranked[1][1] >= SCORE_THRESHOLD):
         ev = EVIDENCE.get((primary, lang), 0)
         return Classification(
             text=text, language=lang, primary_intent=primary,
@@ -683,9 +623,7 @@ def classify(text: str) -> Classification:
                           f"'{ranked[1][0]}' ({ranked[1][1]}) within margin — AI verifies"),
         )
 
-    # ---- EVIDENCE-BASED CONFIDENCE (the core of the hybrid design) ----------
     evidence = EVIDENCE.get((primary, lang), 0)
-
     if evidence >= EVIDENCE_HIGH:
         route, conf, ai = "rules_only", "high", False
         reason = (f"Rule match with {evidence} corpus examples for "

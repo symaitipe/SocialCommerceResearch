@@ -68,9 +68,17 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
    service centre, after-sales service, or a warranty claim.
 
 9. order_purchase_confirmation
-   Customer says they already ordered, bought, received, or obtained the
-   product. If the same sentence mainly reports a fault/problem after receiving
-   it, prefer negative_feedback_complaint.
+   Customer is actually submitting an order through the comment.
+
+   Classify as order_purchase_confirmation only when the comment contains all
+   of the following together in an order-submission context:
+   - a customer or recipient name,
+   - a phone/mobile number,
+   - a delivery address or delivery-location details.
+
+   A phone/mobile number alone is NOT sufficient. A name and phone number
+   without an address are also NOT sufficient. The complete comment must show
+   that these details are being provided to submit the order.
 
 10. positive_feedback
     Customer gives praise, recommendation, satisfaction, or a positive review.
@@ -93,7 +101,9 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
 Important distinctions:
 - "price?" / "price kiyada?" -> price_inquiry
 - "too much price" / "price is too high" -> price_complaint
-- "gaththa / received" alone -> order_purchase_confirmation
+- phone/mobile number alone -> NOT automatically order_purchase_confirmation
+- customer/recipient name + phone/mobile number + delivery address together,
+  clearly submitted as order details -> order_purchase_confirmation
 - "gaththa eka wada na" -> negative_feedback_complaint
 - "WhatsApp number wada na" -> contact_request
 - "hodaida?" is a quality question -> product_inquiry, not positive_feedback
@@ -139,20 +149,20 @@ async def ai_fallback(text: str, language: str) -> dict:
         raw = raw.replace("```json", "").replace("```", "").strip()
         result = json.loads(raw)
 
-        intent    = _clean_intent(result.get("intent", ""))
-    
+        intent = _clean_intent(result.get("intent", ""))
+
         if intent not in VALID_INTENTS:
             raise ValueError(f"Gemini returned unsupported intent: {intent!r}")
 
         return {
-            "intent":      intent,
+            "intent": intent,
             "ai_assisted": True,
         }
 
     except Exception as e:
         print(f"⚠️  Gemini fallback failed: {str(e)}")
         return {
-            "intent":      "noise_off_topic",
+            "intent": "noise_off_topic",
             "ai_assisted": False,
-            "error":       str(e),
+            "error": str(e),
         }
