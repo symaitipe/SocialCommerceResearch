@@ -45,8 +45,9 @@ export const getPostCommentsByIntent = async (postId, intent) => {
   return response.data;
 };
 
-export const bulkReplyToComments = async (commentIds, message) => {
+export const bulkReplyToComments = async (postId, commentIds, message) => {
   const response = await axios.post(`${API_BASE}/posts/comments/bulk-reply`, {
+    post_id: Number(postId),
     comment_ids: commentIds,
     message,
   });
