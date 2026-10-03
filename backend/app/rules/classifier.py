@@ -1,8 +1,3 @@
-"""SocialSell finalversion classifier with reweighted rules and contextual question handling.
-
-Replace backend/app/rules/classifier.py with this file. The existing finalversion
-routing_guards.py and ai_fallback.py are retained unchanged.
-"""
 
 import re
 import unicodedata
@@ -380,6 +375,10 @@ QUESTION_FORM_PATTERNS = [
     re.compile(r"\b(?:do|would) you recommend(?: this| it)?\b", re.I),
 ]
 
+PRICE_WITHHELD_COMPLAINT_PATTERN = re.compile(
+    r"(?:ගාන|මිල)\s*.{0,24}(?:කියන්න|කිය|දන්න).{0,12}"
+    r"(?:නැත්තේ|නැහැ|නෑ|නැත|නැති)"
+)
 
 def is_quality_question(text: str) -> bool:
     return any(p.search(text) for p in QUESTION_FORM_PATTERNS)

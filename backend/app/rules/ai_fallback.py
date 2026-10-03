@@ -99,15 +99,35 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
     Comment has no meaningful product/customer intent for this taxonomy.
 
 Important distinctions:
-- "price?" / "price kiyada?" -> price_inquiry
-- "too much price" / "price is too high" -> price_complaint
-- phone/mobile number alone -> NOT automatically order_purchase_confirmation
-- customer/recipient name + phone/mobile number + delivery address together,
-  clearly submitted as order details -> order_purchase_confirmation
-- "gaththa eka wada na" -> negative_feedback_complaint
-- "WhatsApp number wada na" -> contact_request
-- "hodaida?" is a quality question -> product_inquiry, not positive_feedback
-- bare greeting ("hi"/"hello") -> contact_request
+
+Classification boundaries:
+- Determine the primary intent from the customer's actual request
+  or statement, not from isolated keywords. If multiple intents
+  occur, select the one emphasized by the main request.
+
+- Price Inquiry asks about the product's price, even when product
+  attributes are mentioned. Product Inquiry asks about features,
+  variants, suitability, quality, or specifications, even when
+  price is mentioned incidentally. Delivery charges belong to
+  Delivery Inquiry.
+
+- Price Complaint expresses dissatisfaction with the price or
+  a price increase. Other product, delivery, or seller-service
+  complaints belong to Negative Feedback/Complaint.
+
+- Distinguish product-quality questions from Positive Feedback.
+  Suggestions propose improvements; positive remarks accompanying
+  a suggestion do not automatically make it Positive Feedback.
+
+- Contact Request concerns obtaining contact details, problems
+  with contact channels, or context-free greetings. A bare phone
+  number without a discernible request is Noise/Off-topic.
+
+- Order/Purchase Confirmation requires a name, phone number,
+  and delivery address together in an order-submission context.
+  Incomplete details alone do not establish an order. Classify
+  according to any other clearly expressed intent.
+
 
 Detected language mode: {language}
 Comment: {text}
