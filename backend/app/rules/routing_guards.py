@@ -1,18 +1,3 @@
-"""
-Routing guards for the SocialSell hybrid classifier.
-
-Purpose
--------
-These guards do not directly classify the four sparse AI-only categories.
-They detect situations where a rule-only decision is unsafe and force the
-comment to the AI layer.
-
-Order/Purchase Confirmation is handled specially: the presence of a mobile
-number is treated only as a routing signal. Gemini must inspect the complete
-comment and decide whether it actually contains a customer/recipient name,
-mobile number, and delivery address together as an order submission.
-"""
-
 import re
 import unicodedata
 from dataclasses import dataclass
