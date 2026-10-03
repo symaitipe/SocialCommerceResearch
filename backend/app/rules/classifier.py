@@ -94,10 +94,7 @@ RULE_CATEGORIES = [
     "Positive Feedback", "Negative Feedback/Complaint", "Noise/Off-topic",
 ]
 
-# Order/Purchase Confirmation is not finalized by keyword rules. A detected
-# mobile number routes the complete comment to Gemini, which checks whether a
-# customer/recipient name + mobile number + delivery address are present
-# together in an order-submission context.
+
 CONTEXT_AI_CATEGORIES = frozenset({
     "Order/Purchase Confirmation",
 })
@@ -174,30 +171,16 @@ def detect_language(text: str) -> str:
         return "english"
     if has_emoji:
         return "emoji"
-    return "emoji" if not t else "mixed"  # digits/punct-only → treat as emoji/non-text
+    return "emoji" if not t else "mixed"  
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 4. KEYWORD RULES
-#    Every keyword below was observed in the annotated corpus, UNLESS
-#    explicitly marked source="synthetic" (see module docstring). Each
-#    rule is (pattern, weight, is_regex, source). Weight reflects
-#    specificity:
-#      3 = unambiguous, category-defining ("koko", "kiyada", "ganna epa")
-#      2 = strong signal, rare collisions
-#      1 = supporting signal, needs company or wins only unopposed
-#    Patterns are matched on normalised text. \b works for Latin;
-#    Sinhala patterns use plain substring (no word boundaries in script).
-# ═══════════════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class Rule:
     pattern: str
     weight: int
     is_regex: bool = False
-    source: str = "corpus"   # "corpus" = observed in annotated data
-                              # "synthetic" = manually transliterated,
-                              #   used only for unambiguous brand/service
-                              #   names where phonetic variation is minimal
+    source: str = "corpus"
 
 def R(p, w, rx=False, source="corpus"):
     return Rule(p, w, rx, source)
@@ -207,7 +190,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
     # ── NEGATIVE FEEDBACK / COMPLAINT ─────────────────────────────────────
     "Negative Feedback/Complaint": [
 
-        # ── Don't-buy warnings ─────────────────────────────────────────────
         R(r"\bganna? epa\b", 3, True),
         R("ගන්න එපා", 3),
         R("ගන්නෙපා", 3),
@@ -215,10 +197,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bdon'?t buy\b", 3, True),
         R(r"\bdonot buy\b", 3, True),
         R(r"\bdont take\b", 3, True),
-        R("කවුරුවත් ගන්න", 3),
-        R("කිසිම කෙනෙක් ගන්න", 3),
-
-        # ── Not working / broken ────────────────────────────────────────────
         R(r"\bnot work", 3, True),
         R(r"\bwada n[aeh]", 3, True),
         R(r"\bvada n[aeh]", 3, True),
@@ -227,11 +205,8 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R("වැඩ කරන්නෙ නෑ", 3),
         R("වැඩ කරන්නේ නැ", 3),
         R(r"\bkaduna\b", 3, True),
-        R(r"\bnot charging\b", 3, True),
         R(r"\bdoesn'?t work\b", 3, True),
         R(r"\bstopped working\b", 3, True),
-
-        # ── Waste / worst / fake / cheating ─────────────────────────────────
         R(r"\bwaste\b", 3, True),
         R(r"\bworst\b", 3, True),
         R(r"\bfake\b", 3, True),
@@ -243,8 +218,6 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bsawuth", 3, True),
         R("බොරු", 3),
         R("රවට්ට", 3),
-
-        # ── Disappointment / quality complaints ─────────────────────────────
         R(r"\bdisappoint", 3, True),
         R(r"\bnot satisfied\b", 3, True),
         R(r"\bpoor quality\b", 3, True),
@@ -253,164 +226,88 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bbad product\b", 3, True),
         R(r"\bnot quality\b", 2, True),
         R("පාඩුයි", 3),
-        R("හිතුව තරම් කොලිටි නෑ", 3),
+        R("හිතුව තරම්", 3),
         R("කොලිටි නෑ", 3),
-
-        # ── Wrong item / missing / damaged ──────────────────────────────────
         R(r"\bwrong (item|product|colou?r|size|model)\b", 3, True),
         R(r"\bmissing\b", 2, True),
         R(r"\bdamage", 2, True),
         R(r"\bbroken\b", 3, True),
-
-        # "different item"
-        R(r"\b(wena|vena) ekak\b", 3, True),
+        R(r"\b(wena|vena|different|wrong)\b", 3, True),
         R("වෙන එකක්", 3),
-
-        # General Singlish:
-        # "illapu ... nemei/neme"
-        # Handles:
-        # illapu eka nemei
-        # illapu pata eka nemei
-        # illapu size eka nemei
-        # illapu model eka nemei
-        R(
-            r"\billapu\b.{0,30}\b(nemei|neme)\b",
-            3,
-            True
-        ),
-
-        # General Sinhala:
-        # "ඉල්ලපු ... නෙමෙයි/නෙමේ"
-        R(
-            r"ඉල්ලපු.{0,30}(නෙමෙයි|නෙමේ)",
-            3,
-            True
-        ),
-
-        # Ordered/bought something, BUT a different/wrong item was involved.
-        # Examples:
-        # "order kra eth wena ekak awa"
-        # "gaththa eth different item ekak"
-        R(
-            r"\b(order\s+(kara|kala|kra|kla)|gatta|gaththa)\b"
-            r".{0,35}\b(eth|but)\b"
-            r".{0,45}\b(wena|vena|different|wrong)\b",
-            3,
-            True
-        ),
-
-        # Ordered/bought something, BUT what arrived is not what was expected.
-        #
-        # Example:
-        # "Ane mn order kra eth ewiyh tynne rosehip oil ek"
-        #
-        # Captures:
-        # order kra + eth + ewiyh + tynne
-        R(
-            r"\b(order\s+(kara|kala|kra|kla)|gatta|gaththa)\b"
-            r".{0,35}\b(eth|but)\b"
-            r".{0,45}\b(awilla|avilla|ewila|ewilla|avila|awe|awa|ewiyh)\b"
-            r".{0,25}\b(thiyenne|tiyenne|tyenne|tynne)\b",
-            3,
-            True
-        ),
-
-        # ── Order not arrived / seller not responding ───────────────────────
+        R(r"\billapu\b.{0,30}\b(nemei|neme)\b",3,True),
+        R(r"ඉල්ලපු.{0,30}(නෙමෙයි|නෙමේ)",3,True),
         R(r"\border? (eka )?thama n[ha]", 3, True),
         R(r"\banswer (karanne|krnne) na", 3, True),
         R(r"\bnot answering\b", 3, True),
         R(r"\breply karanne na", 3, True),
         R(r"\breact karanne n[ae]", 3, True),
-        R("එකයි ඇවිත්", 2),
         R(r"\bstill waiting\b", 3, True),
         R(r"\bnever received\b", 3, True),
 
-        # ── Other product problems ───────────────────────────────────────────
-        R(r"\bahenne? na", 2, True),
-        R("ඇහෙන්නෙ නෑ", 3),
-        R("ඇහෙන්නේ", 1),
-        R(r"\b(one|1) side not working\b", 3, True),
-        R(r"\bahenawa adui\b", 3, True),
-        R("බැලන්ස් නෑ", 3),
-
-        # Supporting negative signals
-        R(r"\bepa\b", 1, True),
-        R("එපා", 1),
     ],
 
     # ── PAYMENT METHOD INQUIRY ────────────────────────────────────────────
     "Payment Method Inquiry": [
         R(r"\bkoko\b", 3, True), R(r"\binstallment", 3, True),
         R(r"\bcod\b", 3, True),
-        R(r"\bcard payment", 3, True), R(r"\bcard eken\b", 3, True),
+        R(r"\bcard", 3, True), 
         R(r"\bpayment (method|plan|available|accept)", 3, True),
         R(r"\bbank transfer\b", 3, True),
         R(r"\bcash on delivery\b", 3, True),
-        R(r"\bpay(ment)? .{0,12}(available|accept|puluwanda|thiyanawada)", 2, True),
-        R("කොකො", 3, source="synthetic"),
-        R(r"\bkokoo\b", 3, True, source="synthetic"),
+        R("කොකො", 3),R(r"\bpay(ment)? .{0,12}(puluwanda|thiyanawada)", 2, True),
+        R(r"\bkokoo\b", 3),
     ],
 
     # ── PRICE INQUIRY ─────────────────────────────────────────────────────
     "Price Inquiry": [
-        R(r"\bmila kiyada\b", 3, True), R(r"\bkiyada\b", 3, True),
+        R(r"\bmila\b", 3, True), R(r"\bkiyada\b", 3, True),
         R(r"\bkiyda\b", 3, True), R(r"\bkeeyda\b", 3, True),
         R(r"\bkeeyada\b", 3, True), R(r"\bkiyad\b", 3, True),
-        R("කීයද", 3), R("කියද", 3), R("මිල", 2), R("ගාන", 2), R("ගණන", 1),
-        R(r"\bprice\b", 3, True), R(r"\bprize\b", 3, True),  # common misspelling
-        R(r"\bhow much\b", 3, True), R(r"\bprice list\b", 3, True),
-        R(r"\bgana danna\b", 3, True), R(r"\bgaana\b", 2, True),
-        R(r"\bfull price\b", 3, True),
+        R("කීයද", 3), R("කියද", 3), R("මිල", 2), R("ගාන", 2),
+        R(r"\bprice\b", 3, True), R(r"\bprize\b", 3, True),  
+        R(r"\bhow much\b", 3, True), R(r"\blist\b", 2, True),
+        R(r"\bgana\b", 2, True), R(r"\bgaana\b", 2, True),
+
     ],
 
     # ── DELIVERY INQUIRY ──────────────────────────────────────────────────
     "Delivery Inquiry": [
-        R(r"\bdelivery (charge|cost|fee|kiyada|kohomada)", 3, True),
+        R(r"\bdeliver\b", 2, True), R(r"\bdelivery\b", 2, True),R("ඩිලිවරි", 2),
+        R(r"\b(charge|cost|fee|kiyada|kohomada)", 3, True),
         R(r"\bdawas kiy[ak]", 3, True), R(r"\bdws kiy", 3, True),
         R(r"\bcourier\b", 3, True),
-        R(r"\bdelivery (thiyanawada|available|karanawada|karanwda)", 3, True),
+        R(r"\b(karanawada|karanwda)", 3, True),
         R(r"\bhow (long|many days)\b", 2, True),
         R(r"\border eka dawas\b", 3, True),
-        R("ඩිලිවරි", 2), R("ගෙන්නන", 2), R(r"\bgenna ganne\b", 2, True),
-        R(r"\bdeliver\b", 2, True), R(r"\bdelivery\b", 1, True),
+        R("ගෙන්නන", 2), R(r"\bgenna ganne\b", 2, True),
         R(r"\bshipping\b", 1, True),
-        R(r"\bweekend .{0,15}orders?\b", 2, True),
-        R(r"\borders? ewnw", 2, True),
     ],
 
     # ── LOCATION / AVAILABILITY ───────────────────────────────────────────
     "Location/Availability": [
-        R(r"\bshowroom\b", 3, True), R(r"\bshop location\b", 3, True),
+        R(r"\bshowroom\b", 3, True), R(r"\blocation\b", 3, True),
         R(r"\bshop (eka|ekak)\b", 3, True),
-        R(r"\bwhere can i buy\b", 3, True), R(r"\bwhere .{0,10}(buy|get|shop)\b", 2, True),
+        R(r"\bwhere .{0,10}(buy|get|shop)\b", 2, True),
         R(r"\bvisit (karala|karanna)\b", 3, True),
         R(r"\bawilla balala\b", 3, True),
         R(r"\bkohenda\b", 3, True), R(r"\bkohewath\b", 2, True),
-        R(r"\bi'?m in \w+", 2, True),  # "I need I'm in Welimada"
+        R(r"\bi'?m in \w+", 2, True), 
         R(r"\bbranch\b", 2, True), R(r"\boutlet\b", 2, True),
         R("ශොප්", 2), R("ශෝරූම්", 3),
     ],
 
-    # Order/Purchase Confirmation intentionally has no keyword rule block.
-    # A mobile-number candidate is routed to Gemini for contextual verification.
-
+  
     # ── PURCHASE INTENT ───────────────────────────────────────────────────
     "Purchase Intent": [
-        R(r"\bmatath (oni|one|ona)\b", 3, True),
-        R(r"\bmata (oni|one|ona|onee)\b", 3, True),
-        R("මටත් ඕනේ", 3), R("මටත් ඕනා", 3), R("මටත් ඕන", 3), R("මටත් ඕනි", 3),
-        R("මටත් එකක්", 3), R("ඕනි", 2), R("ඕනේ", 2), R("ඕන", 1),
-        R(r"\bi need (one|it|this)\b", 3, True), R(r"\bi need\b", 2, True),
-        R(r"\bi want (one|it|this)\b", 3, True),
-        R(r"\bganna (one|oni|ona)\b", 3, True),
-        R(r"\bgannawa\b", 2, True), R(r"\bgannawamai\b", 3, True),
-        R(r"\baniwaren .{0,8}gannawa\b", 3, True),
+        R(r"\bneed\b", 3, True), R(r"\bwant\b", 3, True),
+        R(r"\bganna\b", 3, True), R(r"\bgannawa\b", 3, True),
+        R(r"\b(oni|one|ona|onee)\b", 3, True), R(r"\b(ekk|ekak)\b", 3, True), 
+        R(r"\b(mata|matath|mata)\b", 3, True),R("මටත්", 3),
+        R(r"(?<![\u0D80-\u0DFF])(ඕනේ|ඕනා|ඕනි|ඕන)(?![\u0D80-\u0DFF])", 3, True), 
         R(r"\blooking for\b", 2, True),
-        R(r"\bekk oni\b", 3, True), R(r"\bekak oni\b", 3, True),
-        R(r"\b\d+\s?ml denna\b", 3, True), R(r"\bdenna\b", 1, True),
-        R(r"\benne .{0,8}order\b", 2, True),
-        R("ගන්න hadanne", 3), R(r"\bganna hadanne\b", 3, True),
-        R(r"\beka (oni|one)\b", 2, True),
+        R(r"\bdenna\b", 1, True),
+        R("ගන්න", 3), R(r"\bganna\b", 3, True),
+        R(r"\bpuluwanda\b", 2, True)
     ],
 
     # ── PRODUCT INQUIRY ───────────────────────────────────────────────────
@@ -419,21 +316,16 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bthiyanawada\b", 3, True), R(r"\btiyenawada\b", 3, True),
         R(r"\bthiyenawada\b", 3, True), R(r"\bthibeda\b", 3, True),
         R(r"\bthiyeda\b", 3, True), R(r"\bnedda\b", 3, True),
-        R(r"\bndda\b", 3, True), R(r"\bnadda\b", 3, True),
         R("තියෙනවද", 3), R("තියෙනවාද", 3), R("තිබේද", 3), R("තියෙද", 3),
-        R("විතරද", 2), R(r"\bwitharada\b", 3, True),  R(r"\bavailable da\b", 3, True),
-        # can-I-get questions
+        R("විතරද", 2), R(r"\bwitharada\b", 2, True), 
         R(r"\bganna puluwanda\b", 2, True), R(r"\bganna puluwnda\b", 2, True),
         R(r"\bganna barida\b", 2, True), R(r"\bganna berida\b", 2, True),
-        R(r"\bcan (i|we) (get|purchase|buy)\b", 2, True),
         R("ගන්න පුළුවන්ද", 2), R("ගන්න බැරිද", 2),
-        # genuine questions (interrogative structure present: "how to",
-        # "kohomada"/how, "monawada"/what, "-da/ද" particle)
         R(r"\bmonawada\b", 2, True), R("මොනවද", 2), R("මොනවාද", 2),
         R(r"\bhow to use\b", 2, True),
-        R(r"\bis it ok to use\b", 3, True), R(r"\bsafe (for|to)\b", 2, True),
+        R(r"\bsafe (for|to)\b", 2, True),
         R(r"\bkohomada use\b", 2, True),
-        R(r"\bkiyannako\b", 2, True),  # "recommend me one" requests
+        R(r"\bkiyannako\b", 2, True),  
         R(r"\bhodama .{0,12}(ekak|ekk|mkdd|mokadda)\b", 2, True),
         
     ],
@@ -454,22 +346,19 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
         R(r"\bmaretama\b", 3, True), R(r"\bhodai\b", 2, True),
         R(r"\bhondai\b", 2, True), R(r"\bhodata\b", 2, True),
         R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
-        R("හොදයි", 2), R("හොඳයි", 2), R("හොදම හොදයි", 3), R("හොදටම", 3),
         R(r"(^|\s)හොද(\s|$|,|\.|!|\?)", 2, True),
         R("සුපිරි", 3), R("නියමයි", 3), R("පට්ට", 3), R("මරු", 2),
         R("ආදරෙයි", 3), R("ආදරේ", 2),
         R(r"\bcomfortable\b", 2, True), R(r"\bquality\b", 1, True),
         R(r"\bworth\b", 2, True), R(r"\bthanks?\b", 2, True),
         R(r"\bthank you\b", 2, True), R("ස්තූතියි", 3),
-        R(r"\bgrown\b", 1, True), R(r"\bvaluble\b", 2, True),
+        R(r"\bvaluble\b", 2, True),
         R(r"\bvaluable\b", 2, True),
     ],
 
     # ── NOISE / OFF-TOPIC ─────────────────────────────────────────────────
     "Noise/Off-topic": [
         R(r"\bfollow (kar|back|me)", 3, True), R("මාවත් follow", 3),
-        R(r"^\s*$", 3, True),  # empty
-        R(r"^nan$", 3, True),  # null artefacts
     ],
 }
 
@@ -495,22 +384,6 @@ def analyze_emoji(text: str) -> tuple[str, int, int]:
         return "Negative", pos, neg
     return "Neutral", pos, neg
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 6. NEGATION GUARD
-#    Positive keywords immediately followed/preceded by negators must not
-#    count as positive. Observed corpus patterns: "hoda na", "wada na",
-#    "quality ekak na", "hodai na". This decides INTENT (routes to
-#    Negative Feedback/Complaint), not a sentiment label.
-# ═══════════════════════════════════════════════════════════════════════════
-
-# NEGATION_PATTERNS = [
-#     re.compile(r"(hodai|hondai|hoda|good|quality|comfortable)\s+(na+|n[ae]h|නෑ|නැ)", re.I),
-#     re.compile(r"(kisima|කිසිම)\s+(quality|hodak)?\s*(ekak)?\s*(na|නෑ)", re.I),
-#     re.compile(r"quality\s+ekak\s+na", re.I),
-#     re.compile(r"not\s+(good|great|nice|comfortable|working|worth|satisfied|recommended?)", re.I),
-#     re.compile(r"(හොදයි|හොඳයි)\s*(නෑ|නැ)"),
-#     re.compile(r"don'?t\s+recommend", re.I),
-# ]
 
 _NEGATION_FILLER = r"(?:the|a|an|that|so|really|very|quite|too)\s+"
 
