@@ -198,7 +198,7 @@ KEYWORD_RULES: dict[str, list[Rule]] = {
             R(r"\bganna\b", 1, True),
             R(r"\bgannawa\b", 2, True),
             R(r"\b(oni|one|ona|onee)\b", 2, True),
-            R(r"\b(ekk|ekak)\b", 1, True),
+            R(r"\bekak\b", 1, True),
             R("මටත්", 3),
             R(r"(?<![\u0D80-\u0DFF])(ඕනේ|ඕනා|ඕනි|ඕන)(?![\u0D80-\u0DFF])", 2, True),
             R(r"\blooking for\b", 2, True),

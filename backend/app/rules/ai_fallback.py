@@ -68,17 +68,18 @@ Choose exactly ONE primary intent from this 14-category taxonomy:
    service centre, after-sales service, or a warranty claim.
 
 9. order_purchase_confirmation
-   Customer is actually submitting an order through the comment.
+   Customer submits an order by providing all three:
+   - customer or recipient name,
+   - one or more phone numbers,
+   - delivery address or sufficiently clear delivery details.
 
-   Classify as order_purchase_confirmation only when the comment contains all
-   of the following together in an order-submission context:
-   - a customer or recipient name,
-   - a phone/mobile number,
-   - a delivery address or delivery-location details.
+   These details may appear in any order. A structured submission
+   of all three can indicate an implicit order without an explicit
+   purchase phrase.
 
-   A phone/mobile number alone is NOT sufficient. A name and phone number
-   without an address are also NOT sufficient. The complete comment must show
-   that these details are being provided to submit the order.
+   A phone number alone or incomplete details do not establish
+   an order. The details must indicate an order submission rather
+   than an unrelated request or statement.
 
 10. positive_feedback
     Customer gives praise, recommendation, satisfaction, or a positive review.
@@ -123,10 +124,12 @@ Classification boundaries:
   with contact channels, or context-free greetings. A bare phone
   number without a discernible request is Noise/Off-topic.
 
-- Order/Purchase Confirmation requires a name, phone number,
-  and delivery address together in an order-submission context.
-  Incomplete details alone do not establish an order. Classify
-  according to any other clearly expressed intent.
+- Order/Purchase Confirmation may be implicit when the customer
+  provides a name, one or more phone numbers, and delivery
+  details together as an order submission. Field order is
+  irrelevant. Do not infer an order from incomplete details
+  or unrelated contact information.
+
 
 
 Detected language mode: {language}
